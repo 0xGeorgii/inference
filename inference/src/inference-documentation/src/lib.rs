@@ -81,6 +81,7 @@ impl<'ast> Visit<'ast> for DocstringsGrabber {
                 span_start.line, span_start.column, span_end.line, span_end.column
             ),
         );
+        syn::visit::visit_item_fn(self, item_fn);
     }
 
     fn visit_item_mod(&mut self, item_mod: &'ast syn::ItemMod) {
@@ -90,8 +91,14 @@ impl<'ast> Visit<'ast> for DocstringsGrabber {
                 println!("{:?}", precondition.span().source_text().unwrap());
             }
         }
-
+        syn::visit::visit_item_mod(self, item_mod);
     }
+
+    fn visit_macro(&mut self, i: &'ast syn::Macro) {
+        println!("{:?}", i.span().source_text().unwrap());
+        syn::visit::visit_macro(self, i);
+    }    
+
 }
 
 pub fn build_inference_documentation(config: &InferenceDocumentationConfig) {

@@ -15,13 +15,14 @@ fn main() {
     build_inference_documentation(&config);
 }
 
-
 #[inference_spec(main)]
 mod spec {
-    #[inference_fun]    
-    fn main() {
+    use inference_proc_macros::{inference, inference_fun};
+
+    #[inference_fun(main::main)]
+    fn s_main() {
         inference! {
-            main -> ().
+            r#"main -> ()"#
         };
     }
 }
