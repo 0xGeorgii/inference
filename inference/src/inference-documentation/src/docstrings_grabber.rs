@@ -34,16 +34,14 @@ impl DocstringsGrabber<'_> {
     fn parse_fn_docstring(&self, fn_name: String) -> String {
         let line_number = self.fn_loc_map.get(&fn_name).unwrap().0;
         let mut v_docstring = Vec::new();
-        for line in self.file_content.lines().rev().skip(self.file_content.lines().count() - line_number - 1).into_iter() {
-            if line.starts_with("/") {
-                let docstring_line = line.trim_start_matches(|c: char| c == '/').trim().to_string();
-                v_docstring.push(docstring_line.clone());
-                v_docstring.push(String::from("\n"));
-            } else {
+        for line in self.file_content.lines().skip(line_number - 1).into_iter() {
+            if line.starts_with("fn") || !line.starts_with("/"){
                 break;
             }
+            let docstring_line = line.trim_start_matches(|c: char| c == '/').trim().to_string();
+            v_docstring.push(docstring_line.clone());
+            v_docstring.push(String::from("\n"));
         }
-        v_docstring.reverse();
         v_docstring.join("")
     }
 

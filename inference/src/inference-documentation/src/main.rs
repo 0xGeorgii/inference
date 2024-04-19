@@ -46,7 +46,9 @@ mod spec {
             r#"
             InferenceDocumentationConfig::from_cmd_line_args env::args
             | Ok => build_inference_documentation
-            | Err => panic "Problem parsing arguments: *"
+            | Err => {
+                process::exit 1
+            }
             "#
         };
     }
