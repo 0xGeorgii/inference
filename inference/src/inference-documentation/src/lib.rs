@@ -3,7 +3,7 @@
 
 #![warn(clippy::all, clippy::pedantic)]
 
-use std::{collections::HashMap, fs};
+use std::fs;
 use syn::parse_file;
 use walkdir::WalkDir;
 
@@ -59,11 +59,10 @@ pub fn build_inference_documentation(config: &InferenceDocumentationConfig) {
         .for_each(|entry| {
             let file_content = fs::read_to_string(entry.path()).unwrap();
             let rust_file = parse_file(&file_content).unwrap();
-            let mut visitor = docstrings_grabber::DocstringsGrabber {
-                file_name: String::from(entry.path().to_str().unwrap()),
-                file_content: &file_content,
-                fn_loc_map: HashMap::new(),
-            };
+            let mut visitor = docstrings_grabber::DocstringsGrabber::new(
+                String::from(entry.path().to_str().unwrap()),
+                &file_content,
+            );
             visitor.visit_file(&rust_file);
             visitor.save(&config.working_directory, &config.output_directory);
         });

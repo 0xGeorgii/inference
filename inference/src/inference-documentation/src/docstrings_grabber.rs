@@ -10,9 +10,28 @@ pub struct DocstringsGrabber<'file_content> {
     pub file_name: String,
     pub file_content: &'file_content String,
     pub fn_loc_map: HashMap<String, (usize, usize, usize, usize)>,
+
+    current_mod: Vec<String>, //a sequence of modules that are currently being visited that are not part of the inference spec
+    is_current_mod_inference_spec: bool, //a flag that indicates the visitor context is currently inside the inference spec
+    inference_spec_mod: Vec<String>, //a sequence of modules that are currently being visited that are part of the inference spec
+    current_spec_function: String, //the name of the function that the visitor context in and that is part of the inference spec
+    spec_functions: HashMap<String, String>, //a map of inference spec functions to the imperative functions
 }
 
 impl DocstringsGrabber<'_> {
+    pub fn new(file_name: String, file_content: &String) -> DocstringsGrabber {
+        DocstringsGrabber {
+            file_name,
+            file_content,
+            fn_loc_map: HashMap::new(),
+            current_mod: Vec::new(),
+            is_current_mod_inference_spec: false,
+            inference_spec_mod: Vec::new(),
+            current_spec_function: String::new(),
+            spec_functions: HashMap::new(),
+        }
+    }
+
     fn parse_file_level_docstring(&mut self) -> String {
         let mut lines = self.file_content.lines();
         let mut docstring = String::new();
@@ -35,10 +54,13 @@ impl DocstringsGrabber<'_> {
         let line_number = self.fn_loc_map.get(&fn_name).unwrap().0;
         let mut v_docstring = Vec::new();
         for line in self.file_content.lines().skip(line_number - 1).into_iter() {
-            if line.starts_with("fn") || !line.starts_with("/"){
+            if line.starts_with("fn") || !line.starts_with("/") {
                 break;
             }
-            let docstring_line = line.trim_start_matches(|c: char| c == '/').trim().to_string();
+            let docstring_line = line
+                .trim_start_matches(|c: char| c == '/')
+                .trim()
+                .to_string();
             v_docstring.push(docstring_line.clone());
             v_docstring.push(String::from("\n"));
         }
@@ -58,15 +80,9 @@ impl DocstringsGrabber<'_> {
         writeln!(file, "# {}", inner_file_path.replace(MAIN_SEPARATOR, "::")).unwrap();
         writeln!(file, "{}", self.parse_file_level_docstring()).unwrap();
         let mut fn_loc_map: Vec<_> = self.fn_loc_map.iter().collect();
-        fn_loc_map.sort_by(|a, b| a.1.0.cmp(&b.1.0));
-        for (item_name, loc) in fn_loc_map {
-            writeln!(
-                file,
-                "### {}: {}",
-                item_name,
-                format!("[{}:{} - {}:{}]", loc.0, loc.1, loc.2, loc.3)
-            )
-            .unwrap();
+        fn_loc_map.sort_by(|a, b| a.1 .0.cmp(&b.1 .0));
+        for (item_name, _) in fn_loc_map {
+            writeln!(file, "{}", format!("### {}", item_name.clone())).unwrap();
             writeln!(file, "---").unwrap();
             writeln!(file, "{}", self.parse_fn_docstring(item_name.clone())).unwrap();
         }
@@ -75,23 +91,45 @@ impl DocstringsGrabber<'_> {
     pub fn visit_file(&mut self, file: &syn::File) {
         syn::visit::visit_file(self, file);
     }
-
 }
 
 impl<'ast, 'file_content> Visit<'ast> for DocstringsGrabber<'file_content> {
     fn visit_item_fn(&mut self, item_fn: &'ast syn::ItemFn) {
-        let fn_name = item_fn.sig.ident.to_string();
+        let mut fn_name = item_fn.sig.ident.to_string();
+        if self.current_mod.len() > 0 {
+            let mod_name = self.current_mod.join("::");
+            fn_name = format!("{}::{}", mod_name, fn_name);
+        } else {
+            let mod_name_from_file = self
+                .file_name
+                .split(MAIN_SEPARATOR)
+                .last()
+                .unwrap()
+                .replace(".rs", "");
+            fn_name = format!("{}::{}", mod_name_from_file, fn_name);
+        }
         let span_start = item_fn.span().start();
         let span_end = item_fn.span().end();
-        self.fn_loc_map.insert(
-            fn_name,
-            (
-                span_start.line,
-                span_start.column,
-                span_end.line,
-                span_end.column,
-            ),
-        );
+
+        for attr in &item_fn.attrs {
+            if attr.path().is_ident("inference_fun") {
+                let spec_for_fn: Expr = attr.parse_args().unwrap();
+                self.spec_functions
+                    .insert(fn_name.clone(), spec_for_fn.span().source_text().unwrap());
+            }
+        }
+
+        if !self.is_current_mod_inference_spec {
+            self.fn_loc_map.insert(
+                fn_name,
+                (
+                    span_start.line,
+                    span_start.column,
+                    span_end.line,
+                    span_end.column,
+                ),
+            );
+        }
         syn::visit::visit_item_fn(self, item_fn);
     }
 
@@ -99,9 +137,24 @@ impl<'ast, 'file_content> Visit<'ast> for DocstringsGrabber<'file_content> {
         for attr in &item_mod.attrs {
             if attr.path().is_ident("inference_spec") {
                 let _: Expr = attr.parse_args().unwrap();
+                self.is_current_mod_inference_spec = true;
             }
         }
+
+        if self.is_current_mod_inference_spec {
+            self.inference_spec_mod.push(item_mod.ident.to_string());
+        } else {
+            self.current_mod.push(item_mod.ident.to_string());
+        }
+
         syn::visit::visit_item_mod(self, item_mod);
+
+        if self.is_current_mod_inference_spec {
+            self.inference_spec_mod.pop();
+            self.is_current_mod_inference_spec = self.inference_spec_mod.len() > 0;
+        } else {
+            self.current_mod.pop();
+        }
     }
 
     fn visit_macro(&mut self, i: &'ast syn::Macro) {
