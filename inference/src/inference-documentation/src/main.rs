@@ -36,20 +36,20 @@ mod spec {
     #[inference_fun(main)]
     fn s_main_signature() {
         inference! {
-            r#"main -> ()"#
+            r"main -> ()"
         };
     }
 
     #[inference_fun(main)]
     fn s_main_formula() {
         inference! {
-            r#"
+            r"
             InferenceDocumentationConfig::from_cmd_line_args env::args
             | Ok => build_inference_documentation
             | Err => {
                 process::exit 1
             }
-            "#
+            "
         };
     }
 }
