@@ -11,8 +11,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      working-directory: ./inference/inference
+    defaults:
+      run:
+        working-directory: ./inference
 
     steps:
       - name: Setup Rust
