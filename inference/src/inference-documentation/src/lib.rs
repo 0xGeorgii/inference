@@ -19,13 +19,23 @@ pub struct InferenceDocumentationConfig {
 }
 
 impl InferenceDocumentationConfig {
+    /// Creates a new `InferenceDocumentationConfig` instance from the command line arguments.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the working directory does not exist or if the output directory cannot be created.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` — An iterator over the command line arguments.
     pub fn from_cmd_line_args(
         mut args: impl Iterator<Item = String>,
     ) -> Result<InferenceDocumentationConfig, &'static str> {
         args.next();
         let working_directory = args.next().unwrap_or(String::from("."));
 
-        let working_directory = match std::fs::canonicalize(&working_directory) {
+        let working_directory = match std::fs::canonicalize(working_directory) {
             Ok(path) => path.to_string_lossy().to_string(),
             Err(_) => return Err("Failed to convert to absolute path"),
         };
@@ -37,10 +47,10 @@ impl InferenceDocumentationConfig {
         let output_directory = args
             .next()
             .unwrap_or(String::from("./inference_documentation_output"));
-        if !std::path::Path::new(&output_directory).exists() {
-            if let Err(_) = std::fs::create_dir(&output_directory) {
-                return Err("Failed to create output directory");
-            }
+        if !std::path::Path::new(&output_directory).exists()
+            && std::fs::create_dir(&output_directory).is_err()
+        {
+            return Err("Failed to create output directory");
         }
 
         Ok(InferenceDocumentationConfig {
@@ -50,10 +60,20 @@ impl InferenceDocumentationConfig {
     }
 }
 
+/// Parses all .rs files in the directory according to the provided configuration
+/// and builds an inference documenation in the .md format in the output directory (optionally specified in the configuration).
+///
+/// # Panics
+///
+/// This function may panic if there is an error reading or parsing the source files.
+///
+/// # Arguments
+///
+/// * `config` — A reference to `InferenceDocumentationConfig` instance.
 pub fn build_inference_documentation(config: &InferenceDocumentationConfig) {
     WalkDir::new(&config.working_directory)
         .into_iter()
-        .filter_map(|entry| entry.ok())
+        .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
         .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "rs"))
         .for_each(|entry| {
