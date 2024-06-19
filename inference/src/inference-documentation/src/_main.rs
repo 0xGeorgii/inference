@@ -19,7 +19,7 @@ use inference_proc_macros::inference_spec;
 
 /// Main function is the entry point of the inference documentation binary.
 /// It parses the command line arguments and builds the inference documentation.
-fn main() {
+fn _main() {
     let config =
         InferenceDocumentationConfig::from_cmd_line_args(env::args()).unwrap_or_else(|err| {
             eprintln!("Problem parsing arguments: {err}");
