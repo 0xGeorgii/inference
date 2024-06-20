@@ -22,9 +22,10 @@ fn parse(source_file_path: &str) {
         .set_language(&inference_language)
         .expect("Error loading Inference grammar");
     let text = fs::read_to_string(source_file_path).expect("Error reading source file");
-
-    let tree = parser.parse(text, None).unwrap();
-    let ast = build_ast(tree.root_node());
+    let tree = parser.parse(text.clone(), None).unwrap();
+    let code = text.as_bytes();
+    let ast = build_ast(tree.root_node(), code);
+    println!("{:?}", ast);
 }
 
 mod test {
