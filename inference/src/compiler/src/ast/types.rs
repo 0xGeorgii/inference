@@ -1,10 +1,10 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Position {
     pub row: usize,
     pub column: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Location {
     pub start: Position,
     pub end: Position,
@@ -44,8 +44,8 @@ impl SourceFile {
 #[derive(Debug)]
 pub struct UseDirective {
     pub location: Location,
-    pub path: Vec<Identifier>,
-    pub sub_items: Option<Vec<Identifier>>,
+    pub imported_types: Option<Vec<Identifier>>,
+    pub segments: Option<Vec<Identifier>>,
     pub from: Option<String>,
 }
 
@@ -55,8 +55,8 @@ impl UseDirective {
         start_column: usize,
         end_row: usize,
         end_column: usize,
-        path: Vec<Identifier>,
-        sub_items: Option<Vec<Identifier>>,
+        imported_types: Option<Vec<Identifier>>,
+        segments: Option<Vec<Identifier>>,
         from: Option<String>,
     ) -> Self {
         UseDirective {
@@ -70,8 +70,8 @@ impl UseDirective {
                     column: end_column,
                 },
             },
-            path,
-            sub_items,
+            imported_types,
+            segments,
             from,
         }
     }
@@ -110,7 +110,7 @@ impl ContextDefinition {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identifier {
     pub location: Location,
     pub name: String,
@@ -227,7 +227,7 @@ impl FunctionDefinition {
 pub struct ExternalFunctionDefinition {
     pub location: Location,
     pub name: Identifier,
-    pub arguments: Vec<Identifier>,
+    pub arguments: Option<Vec<Identifier>>,
     pub returns: Option<Type>,
 }
 
@@ -238,7 +238,7 @@ impl ExternalFunctionDefinition {
         end_row: usize,
         end_column: usize,
         name: Identifier,
-        arguments: Vec<Identifier>,
+        arguments: Option<Vec<Identifier>>,
         returns: Option<Type>,
     ) -> Self {
         ExternalFunctionDefinition {
@@ -967,6 +967,7 @@ pub enum Type {
     Simple(SimpleType),
     Generic(GenericType),
     Qualified(QualifiedType),
+    Identifier(Identifier),
 }
 
 #[derive(Debug)]

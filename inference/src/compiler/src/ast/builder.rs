@@ -43,38 +43,38 @@ pub fn build_ast(root: Node, code: &[u8]) -> SourceFile {
 
 fn build_use_directive(parent: &mut SourceFile, node: &Node, code: &[u8]) {
     let location = get_location(node);
-    let mut path = Vec::new();
-    let mut sub_items = None;
+    let mut segments = None;
+    let mut imported_types = None;
     let mut from = None;
+    let mut cursor = node.walk();
 
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-        let kind = child.kind();
-        match kind {
-            "identifier" => path.push(build_identifier(&child, code)),
-            //"sub_items" => sub_items = Some(build_sub_items(&child, code)),
-            "string_literal" => from = Some(build_string_literal(&child, code).value),
-            _ => {}
+    if let Some(from_literal) = node.child_by_field_name("from_literal") {
+        from = Some(build_string_literal(&from_literal, code).value);
+    } else {
+        let founded_segments = node
+            .children_by_field_name("segment", &mut cursor)
+            .map(|segment| build_identifier(&segment, code));
+        let founded_segments: Vec<Identifier> = founded_segments.collect();
+        if !founded_segments.is_empty() {
+            segments = Some(founded_segments);
         }
+    }
+
+    cursor = node.walk();
+    let founded_imported_types = node
+        .children_by_field_name("imported_type", &mut cursor)
+        .map(|imported_type| build_identifier(&imported_type, code));
+    let founded_imported_types: Vec<Identifier> = founded_imported_types.collect();
+    if !founded_imported_types.is_empty() {
+        imported_types = Some(founded_imported_types);
     }
 
     parent.add_use_directive(UseDirective {
         location,
-        path,
-        sub_items,
+        imported_types,
+        segments,
         from,
     });
-}
-
-fn build_sub_items(node: &Node, code: &[u8]) -> Vec<Identifier> {
-    let mut sub_items = Vec::new();
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-        if child.kind() == "identifier" {
-            sub_items.push(build_identifier(&child, code));
-        }
-    }
-    sub_items
 }
 
 fn build_context_definition(parent: &mut SourceFile, node: &Node, code: &[u8]) {
@@ -144,10 +144,22 @@ fn build_function_definition(node: &Node, code: &[u8]) -> FunctionDefinition {
 fn build_external_function_definition(node: &Node, code: &[u8]) -> ExternalFunctionDefinition {
     let location = get_location(node);
     let name = build_identifier(&node.child_by_field_name("name").unwrap(), code);
-    let arguments = build_identifiers(&node.child_by_field_name("arguments").unwrap(), code);
-    let returns = node
-        .child_by_field_name("returns")
-        .map(|n| build_type(&n, code));
+    let mut arguments = None;
+    let mut returns = None;
+
+    let mut cursor = node.walk();
+
+    let founded_arguments = node
+        .children_by_field_name("argument", &mut cursor)
+        .map(|segment| build_identifier(&segment, code));
+    let founded_arguments: Vec<Identifier> = founded_arguments.collect();
+    if !founded_arguments.is_empty() {
+        arguments = Some(founded_arguments);
+    }
+
+    if let Some(returns_node) = node.child_by_field_name("returns") {
+        returns = Some(build_type(&returns_node.child(0).unwrap(), code));
+    }
 
     ExternalFunctionDefinition {
         location,
@@ -501,10 +513,12 @@ fn build_number_literal(node: &Node, code: &[u8]) -> NumberLiteral {
 }
 
 fn build_type(node: &Node, code: &[u8]) -> Type {
-    match node.kind() {
+    let node_kind = node.kind();
+    match node_kind {
         "simple_type" => Type::Simple(build_simple_type(node, code)),
         "generic_type" => Type::Generic(build_generic_type(node, code)),
         "qualified_type" => Type::Qualified(build_qualified_type(node, code)),
+        "identifier" => Type::Identifier(build_identifier(node, code)),
         _ => panic!("Unexpected type: {}", node.kind()),
     }
 }
