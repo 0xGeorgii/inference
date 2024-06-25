@@ -266,7 +266,7 @@ fn build_return_statement(node: &Node, code: &[u8]) -> ReturnStatement {
 
 fn build_filter_statement(node: &Node, code: &[u8]) -> FilterStatement {
     let location = get_location(node);
-    let block = build_block(&node.child_by_field_name("block").unwrap(), code);
+    let block = build_block(&node.child(1).unwrap(), code);
 
     FilterStatement { location, block }
 }
@@ -341,7 +341,8 @@ fn build_type_definition_statement(node: &Node, code: &[u8]) -> TypeDefinitionSt
 }
 
 fn build_expression(node: &Node, code: &[u8]) -> Expression {
-    match node.kind() {
+    let node_kind = node.kind();
+    match node_kind {
         "assign_expression" => Expression::Assign(build_assign_expression(node, code)),
         "member_access_expression" => {
             Expression::MemberAccess(build_member_access_expression(node, code))
@@ -362,9 +363,7 @@ fn build_expression(node: &Node, code: &[u8]) -> Expression {
         "bool_literal" | "string_literal" | "number_literal" => {
             Expression::Literal(build_literal(node, code))
         }
-        "identifier" => Expression::Identifier(build_identifier(node, code)),
-        "generic_name" => Expression::Type(Type::Generic(build_generic_type(node, code))),
-        _ => panic!("Unexpected expression type: {}", node.kind()),
+        _ => Expression::Type(build_type(node, code)),
     }
 }
 
@@ -428,10 +427,7 @@ fn build_function_call_expression(node: &Node, code: &[u8]) -> FunctionCallExpre
 
 fn build_prefix_unary_expression(node: &Node, code: &[u8]) -> PrefixUnaryExpression {
     let location = get_location(node);
-    let expression = Box::new(build_expression(
-        &node.child_by_field_name("expression").unwrap(),
-        code,
-    ));
+    let expression = Box::new(build_expression(&node.child(1).unwrap(), code));
 
     PrefixUnaryExpression {
         location,
@@ -441,10 +437,7 @@ fn build_prefix_unary_expression(node: &Node, code: &[u8]) -> PrefixUnaryExpress
 
 fn build_assert_expression(node: &Node, code: &[u8]) -> AssertExpression {
     let location = get_location(node);
-    let expression = Box::new(build_expression(
-        &node.child_by_field_name("expression").unwrap(),
-        code,
-    ));
+    let expression = Box::new(build_expression(&node.child(1).unwrap(), code));
 
     AssertExpression {
         location,
@@ -455,7 +448,7 @@ fn build_assert_expression(node: &Node, code: &[u8]) -> AssertExpression {
 fn build_apply_expression(node: &Node, code: &[u8]) -> ApplyExpression {
     let location = get_location(node);
     let function_call = Box::new(build_function_call_expression(
-        &node.child_by_field_name("function_call").unwrap(),
+        &node.child(1).unwrap(),
         code,
     ));
 
@@ -467,10 +460,7 @@ fn build_apply_expression(node: &Node, code: &[u8]) -> ApplyExpression {
 
 fn build_parenthesized_expression(node: &Node, code: &[u8]) -> ParenthesizedExpression {
     let location = get_location(node);
-    let expression = Box::new(build_expression(
-        &node.child_by_field_name("expression").unwrap(),
-        code,
-    ));
+    let expression = Box::new(build_expression(&node.child(1).unwrap(), code));
 
     ParenthesizedExpression {
         location,
@@ -545,8 +535,8 @@ fn build_type(node: &Node, code: &[u8]) -> Type {
         "type_i32" | "type_i64" | "type_u32" | "type_u64" | "type_bool" | "type_unit" => {
             Type::Simple(build_simple_type(node, code))
         }
-        "generic_type" => Type::Generic(build_generic_type(node, code)),
-        "qualified_type" => Type::Qualified(build_qualified_type(node, code)),
+        "generic_type" | "generic_name" => Type::Generic(build_generic_type(node, code)),
+        "qualified_type" | "qualified_name" => Type::Qualified(build_qualified_type(node, code)),
         "identifier" => Type::Identifier(build_identifier(node, code)),
         _ => panic!("Unexpected type: {}", node.kind()),
     }
