@@ -553,12 +553,11 @@ fn build_generic_type(node: &Node, code: &[u8]) -> GenericType {
     let location = get_location(node);
     let base = build_identifier(&node.child_by_field_name("base_type").unwrap(), code);
 
-    let n2 = node.child(1).unwrap();
-    let n2_kind = n2.kind();
+    let args = node.child(1).unwrap();
 
-    let mut cursor = n2.walk();
+    let mut cursor = args.walk();
 
-    let types = n2
+    let types = args
         .children_by_field_name("type", &mut cursor)
         .map(|segment| build_type(&segment, code));
     let parameters: Vec<Type> = types.collect();
