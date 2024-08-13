@@ -1,19 +1,64 @@
 #![warn(clippy::pedantic)]
 
+//! # Inference Compiler
+//!
+//! This is the entry point for the Inference compiler, which provides functionality to parse and
+//! translate `.inf` source files into Coq code (`.v` files).
+//!
+//! ## Modules
+//!
+//! - `ast`: Contains types and builders for constructing the AST from parsed source `.inf` files.
+//! - `cli`: Contains the command-line interface (CLI) parsing logic using the `clap` crate.
+//! - `wasm_to_coq_translator`: Handles the translation of WebAssembly (`.wasm`) files to Coq code (`.v` files).
+//!
+//! ## Main Functionality
+//!
+//! The main function parses command-line arguments to determine the operation mode:
+//!
+//! - If the `--wasm` flag is provided, the program will translate the specified `.wasm` file into `.v` code.
+//! - Otherwise, the program will parse the specified `.inf` source file and generate an AST.
+//!
+//! ### Functions
+//!
+//! - `main`: The entry point of the program. Handles argument parsing and dispatches to the appropriate function
+//!   based on the provided arguments. It handles parses specified in the first CLI argument
+//!   and saves the request to the `out/` directory.
+//!
+//! ### Tests
+//!
+//! The `test` module contains unit tests to validate the core functionality of the compiler:
+//!
+//! - `test_parse`: Tests the parsing of a `.inf` source file into an AST.
+//! - `test_wasm_to_coq`: Tests the translation of a WebAssembly (`.wasm`) file into Coq code.
+//! - `test_walrys`: Demonstrates reading a WebAssembly (`.wasm`) file using the `walrus` crate, and prints function IDs and names.
+
 mod ast;
+mod cli;
 mod wasm_to_coq_translator;
 
 use ast::builder::build_ast;
-use std::{env, fs, process};
+use clap::Parser;
+use cli::parser::Cli;
+use std::{fs, path::Path, process};
+use walkdir::WalkDir;
 
+/// Inference compiler entry point
+///
+/// This function parses the command-line arguments to determine whether to parse an `.inf` source file
+/// or translate a `.wasm` file into Coq code. Depending on the `--wasm` flag, it either invokes the
+/// `wasm_to_coq` function or the `parse_file` function.
 fn main() {
-    if env::args().len() != 1 {
-        eprintln!("One argument is expected: the source file path");
+    let args = Cli::parse();
+    if !args.path.exists() {
+        eprintln!("Error: path not found");
         process::exit(1);
     }
 
-    let source_file_path = env::args().nth(1).unwrap();
-    parse_file(&source_file_path);
+    if args.wasm {
+        wasm_to_coq(&args.path);
+    } else {
+        parse_file(args.path.to_str().unwrap());
+    }
 }
 
 fn parse_file(source_file_path: &str) -> ast::types::SourceFile {
@@ -33,6 +78,64 @@ fn parse(source_code: &str) -> ast::types::SourceFile {
     ast
 }
 
+fn wasm_to_coq(path: &Path) {
+    if path.is_file() {
+        wasm_to_coq_file(path, None);
+    } else {
+        for entry in WalkDir::new(path)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+        {
+            let f_name = entry.file_name().to_string_lossy();
+
+            if f_name.ends_with(".wasm") {
+                wasm_to_coq_file(
+                    entry.path(),
+                    Some(
+                        entry
+                            .path()
+                            .strip_prefix(path)
+                            .ok()
+                            .unwrap()
+                            .parent()
+                            .unwrap(),
+                    ),
+                );
+            }
+        }
+    }
+}
+
+fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> String {
+    let absolute_path = path.canonicalize().unwrap();
+    let filename = path
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split('.')
+        .next()
+        .unwrap();
+
+    let bytes = std::fs::read(absolute_path).unwrap();
+    let coq = wasm_to_coq_translator::wasm_parser::translate_bytes(
+        filename.to_string(),
+        bytes.as_slice(),
+    );
+    assert!(!coq.is_empty(), "Failed to parse {filename} to .v");
+    let current_dir = std::env::current_dir().unwrap();
+    let target_dir = match sub_path {
+        Some(sp) => current_dir.join("out").join(sp),
+        None => current_dir.join("out"),
+    };
+    let coq_file_path = target_dir.join(format!("{filename}.v"));
+    fs::create_dir_all(target_dir).unwrap();
+    std::fs::write(coq_file_path.clone(), coq).unwrap();
+    coq_file_path.to_str().unwrap().to_owned()
+}
+
+#[allow(unused_imports)]
 mod test {
 
     use walrus::Module;
@@ -68,7 +171,7 @@ mod test {
         let current_dir = std::env::current_dir().unwrap();
         let path = current_dir.join("samples/audio_bg.wasm");
         let absolute_path = path.canonicalize().unwrap();
-        let mut module = Module::from_file(absolute_path).unwrap();
+        let module = Module::from_file(absolute_path).unwrap();
         for func in module.funcs.iter() {
             println!("{} : {:?}", func.id().index(), func.name);
         }
