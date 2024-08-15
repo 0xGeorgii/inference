@@ -118,10 +118,9 @@ fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> Result<String, Stri
         .file_name()
         .unwrap()
         .to_str()
-        .unwrap()
-        .split('.')
-        .next()
         .unwrap();
+    let fnlen = filename.rfind('.').unwrap_or(filename.len());
+    let filename = &filename[..fnlen];
 
     let bytes = std::fs::read(absolute_path).unwrap();
     let coq = wasm_to_coq_translator::wasm_parser::translate_bytes(
@@ -140,7 +139,6 @@ fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> Result<String, Stri
         Some(sp) => current_dir.join("out").join(sp),
         None => current_dir.join("out"),
     };
-    let filename = &filename.replace('.', "_");
     let coq_file_path = target_dir.join(format!("{filename}.v"));
     fs::create_dir_all(target_dir).unwrap();
     std::fs::write(coq_file_path.clone(), coq.unwrap()).unwrap();
