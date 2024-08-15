@@ -12,9 +12,9 @@ use wasmparser::{
     },
 };
 
-use crate::wasm_to_coq_translator::translator::WasmParseData;
+use crate::wasm_to_coq_translator::translator::{WasmModuleParseError, WasmParseData};
 
-pub fn translate_bytes(mod_name: String, bytes: &[u8]) -> String {
+pub fn translate_bytes(mod_name: String, bytes: &[u8]) -> Result<String, WasmModuleParseError> {
     let mut data = Vec::new();
     let mut reader = std::io::Cursor::new(bytes);
     reader.read_to_end(&mut data).unwrap();

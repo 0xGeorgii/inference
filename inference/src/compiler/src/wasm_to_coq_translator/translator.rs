@@ -4,6 +4,22 @@ use wasmparser::{
     MemoryType, OperatorsReader, RecGroup, RefType, Table, TypeRef, ValType,
 };
 
+#[derive(Debug)]
+pub(crate) enum WasmModuleParseError {
+    UnsupportedOperation(String),
+}
+
+impl WasmModuleParseError {
+    fn add_string_to_reported_error(
+        info: &String,
+        error: WasmModuleParseError,
+    ) -> WasmModuleParseError {
+        let WasmModuleParseError::UnsupportedOperation(error_message) = error;
+        let ret_err = format!("{info}\n\t{error_message}").to_string();
+        WasmModuleParseError::UnsupportedOperation(ret_err)
+    }
+}
+
 pub(crate) struct WasmParseData<'a> {
     mod_name: String,
 
@@ -39,8 +55,19 @@ impl WasmParseData<'_> {
         }
     }
 
+    fn add_module_name_to_reported_error(
+        &self,
+        error: WasmModuleParseError,
+    ) -> WasmModuleParseError {
+        let module_name = &self.mod_name;
+        WasmModuleParseError::add_string_to_reported_error(
+            &format!("\tModule name: {module_name}"),
+            error,
+        )
+    }
+
     #[allow(clippy::too_many_lines)]
-    pub(crate) fn translate(&self) -> String {
+    pub(crate) fn translate(&self) -> Result<String, WasmModuleParseError> {
         let mut coq = String::new();
         coq.push_str("Require Import String List BinInt BinNat.\n");
         coq.push_str("From Exetasis Require Import WasmStructure.\n");
@@ -71,21 +98,39 @@ impl WasmParseData<'_> {
         }
         let mut created_globals = Vec::new();
         for global in &self.globals {
-            let (name, res) = translate_global(global);
-            coq.push_str(res.as_str());
-            created_globals.push(name);
+            match translate_global(global) {
+                Ok((name, res)) => {
+                    coq.push_str(res.as_str());
+                    created_globals.push(name);
+                }
+                Err(e) => {
+                    return Err(self.add_module_name_to_reported_error(e));
+                }
+            }
         }
         let mut created_data_segments = Vec::new();
         for data in &self.data {
-            let (name, res) = translate_data_segment(data);
-            coq.push_str(res.as_str());
-            created_data_segments.push(name);
+            match translate_data_segment(data) {
+                Ok((name, res)) => {
+                    coq.push_str(res.as_str());
+                    created_data_segments.push(name);
+                }
+                Err(e) => {
+                    return Err(self.add_module_name_to_reported_error(e));
+                }
+            }
         }
         let mut created_elements = Vec::new();
         for element in &self.elements {
-            let (name, res) = translate_element(element);
-            coq.push_str(res.as_str());
-            created_elements.push(name);
+            match translate_element(element) {
+                Ok((name, res)) => {
+                    coq.push_str(res.as_str());
+                    created_elements.push(name);
+                }
+                Err(e) => {
+                    return Err(self.add_module_name_to_reported_error(e));
+                }
+            }
         }
 
         let mut created_function_types = Vec::new();
@@ -95,9 +140,16 @@ impl WasmParseData<'_> {
             created_function_types.push(name);
         }
 
-        let (created_functions, res) =
-            translate_functions(&self.function_type_indexes, &self.function_bodies);
-        coq.push_str(res.as_str());
+        let created_functions =
+            match translate_functions(&self.function_type_indexes, &self.function_bodies) {
+                Ok((names, res)) => {
+                    coq.push_str(res.as_str());
+                    names
+                }
+                Err(e) => {
+                    return Err(self.add_module_name_to_reported_error(e));
+                }
+            };
 
         let module_name = &self.mod_name;
         coq.push_str(format!("Definition {module_name} : WasmModule :=\n").as_str());
@@ -174,7 +226,7 @@ impl WasmParseData<'_> {
         coq.push_str(format!("m_exports := {exports}").as_str());
 
         coq.push_str("|}.");
-        coq
+        Ok(coq)
     }
 }
 
@@ -263,7 +315,7 @@ fn translate_memory_type(memory_type: &MemoryType) -> (String, String) {
     (name, res)
 }
 
-fn translate_global(global: &Global) -> (String, String) {
+fn translate_global(global: &Global) -> Result<(String, String), WasmModuleParseError> {
     let mut res = String::new();
     let id = get_id();
     let name = format!("Global{id}");
@@ -292,14 +344,24 @@ fn translate_global(global: &Global) -> (String, String) {
     res.push_str(format!("gt_valtype := {val_type}\n").as_str());
     res.push_str("|};\n");
 
-    let init_expr = translate_operators_reader(global.init_expr.get_operators_reader());
-    res.push_str(format!("g_init := {init_expr}\n").as_str());
+    match translate_operators_reader(global.init_expr.get_operators_reader()) {
+        Ok(expression) => {
+            res.push_str(format!("g_init := {expression}\n").as_str());
+        }
+        Err(e) => {
+            return Err(WasmModuleParseError::add_string_to_reported_error(
+                &String::from("Failed to translate global init expression"),
+                e,
+            ));
+        }
+    }
+
     res.push_str("|}.\n");
     res.push('\n');
-    (name, res)
+    Ok((name, res))
 }
 
-fn translate_data_segment(data: &Data) -> (String, String) {
+fn translate_data_segment(data: &Data) -> Result<(String, String), WasmModuleParseError> {
     let mut res = String::new();
     let id = get_id();
     let name = format!("DataSegment{id}");
@@ -325,21 +387,30 @@ fn translate_data_segment(data: &Data) -> (String, String) {
         DataKind::Active {
             memory_index,
             offset_expr,
-        } => {
-            let expression = translate_operators_reader(offset_expr.get_operators_reader());
-            format!("dsm_active {memory_index} ({expression})")
-        }
+        } => match translate_operators_reader(offset_expr.get_operators_reader()) {
+            Ok(expression) => {
+                format!("dsm_active {memory_index} ({expression})")
+            }
+            Err(e) => {
+                return Err(WasmModuleParseError::add_string_to_reported_error(
+                    &String::from("Failed to translate data segment offset expression"),
+                    e,
+                ));
+            }
+        },
         DataKind::Passive => "dsm_passive".to_string(),
     };
     res.push_str(format!("ds_mode := {mode};\n").as_str());
 
     res.push_str("|}.\n");
     res.push('\n');
-    (name, res)
+    Ok((name, res))
 }
 
 #[allow(clippy::too_many_lines)]
-fn translate_operators_reader(operators_reader: OperatorsReader) -> String {
+fn translate_operators_reader(
+    operators_reader: OperatorsReader,
+) -> Result<String, WasmModuleParseError> {
     let mut res = String::new();
     let mut blocks_stack: Vec<(bool, bool)> = Vec::new();
     let total_ops = operators_reader.clone().into_iter().count();
@@ -680,17 +751,19 @@ fn translate_operators_reader(operators_reader: OperatorsReader) -> String {
                     res.push_str("i_numeric ni_i64_extend_i32_u\n");
                 }
                 _ => {
-                    continue;
+                    return Err(WasmModuleParseError::UnsupportedOperation(
+                        format!("Failed to translate operator: {op:?}").to_string(),
+                    ));
                 }
             }
 
             res.push_str(" :: \n");
         }
     }
-    res
+    Ok(res)
 }
 
-fn translate_element(element: &Element) -> (String, String) {
+fn translate_element(element: &Element) -> Result<(String, String), WasmModuleParseError> {
     let mut res = String::new();
     let id = get_id();
     let name = format!("ElementSegment{id}");
@@ -711,8 +784,17 @@ fn translate_element(element: &Element) -> (String, String) {
             }
             let mut expression_translated = String::new();
             for e in expr.clone() {
-                let expression = translate_operators_reader(e.unwrap().get_operators_reader());
-                expression_translated.push_str(expression.as_str());
+                match translate_operators_reader(e.unwrap().get_operators_reader()) {
+                    Ok(expression) => {
+                        expression_translated.push_str(expression.as_str());
+                    }
+                    Err(e) => {
+                        return Err(WasmModuleParseError::add_string_to_reported_error(
+                            &String::from("Failed to translate element segment expression"),
+                            e,
+                        ));
+                    }
+                }
             }
 
             res.push_str(format!("es_init := ({expression_translated});\n").as_str());
@@ -735,11 +817,18 @@ fn translate_element(element: &Element) -> (String, String) {
         ElementKind::Active {
             table_index,
             offset_expr,
-        } => {
-            let expression = translate_operators_reader(offset_expr.get_operators_reader());
-            let index = table_index.unwrap_or(0);
-            res.push_str(format!("es_mode := esm_active {index} ({expression})\n").as_str());
-        }
+        } => match translate_operators_reader(offset_expr.get_operators_reader()) {
+            Ok(expression) => {
+                let index = table_index.unwrap_or(0);
+                res.push_str(format!("es_mode := esm_active {index} ({expression})\n").as_str());
+            }
+            Err(e) => {
+                return Err(WasmModuleParseError::add_string_to_reported_error(
+                    &String::from("Failed to translate element segment offset expression"),
+                    e,
+                ));
+            }
+        },
         ElementKind::Passive => {
             res.push_str("es_mode := esm_passive\n");
         }
@@ -749,7 +838,7 @@ fn translate_element(element: &Element) -> (String, String) {
     }
 
     res.push_str("|}.\n\n");
-    (name, res)
+    Ok((name, res))
 }
 
 fn translate_rec_group(rec_group: &RecGroup) -> (String, String) {
@@ -778,10 +867,7 @@ fn translate_rec_group(rec_group: &RecGroup) -> (String, String) {
                 results_str.push_str("nil;\n");
                 res.push_str(format!("ft_results := {results_str}").as_str());
             }
-            CompositeInnerType::Array(_) => {
-                //TODO
-            }
-            CompositeInnerType::Struct(_) => {
+            CompositeInnerType::Array(_) | CompositeInnerType::Struct(_) => {
                 //TODO
             }
         }
@@ -793,15 +879,13 @@ fn translate_rec_group(rec_group: &RecGroup) -> (String, String) {
 fn translate_functions(
     function_type_indexes: &[u32],
     function_bodies: &[FunctionBody],
-) -> (Vec<String>, String) {
+) -> Result<(Vec<String>, String), WasmModuleParseError> {
     let mut res = String::new();
     let mut function_names = Vec::new();
     for (index, function_body) in function_bodies.iter().enumerate() {
         let id = get_id();
         let name = format!("Function{id}");
         let type_index = function_type_indexes[index];
-
-        let body = translate_operators_reader(function_body.get_operators_reader().unwrap());
 
         res.push_str(format!("Definition {name} : WasmFunction :=\n").as_str());
         res.push_str("{|\n");
@@ -827,12 +911,22 @@ fn translate_functions(
         }
         locals.push_str("nil");
         res.push_str(format!("f_locals := {locals};\n").as_str());
-        res.push_str(format!("f_body := {body}").as_str());
+        match translate_operators_reader(function_body.get_operators_reader().unwrap()) {
+            Ok(expression) => {
+                res.push_str(format!("f_body := {expression}").as_str());
+            }
+            Err(e) => {
+                return Err(WasmModuleParseError::add_string_to_reported_error(
+                    &String::from("Failed to translate function body"),
+                    e,
+                ));
+            }
+        }
         res.push_str("|}.\n");
         res.push('\n');
         function_names.push(name);
     }
-    (function_names, res)
+    Ok((function_names, res))
 }
 
 fn get_id() -> String {

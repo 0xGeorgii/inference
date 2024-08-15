@@ -41,6 +41,7 @@ use clap::Parser;
 use cli::parser::Cli;
 use std::{fs, path::Path, process};
 use walkdir::WalkDir;
+use wasm_to_coq_translator::translator::WasmModuleParseError;
 
 /// Inference compiler entry point
 ///
@@ -80,7 +81,9 @@ fn parse(source_code: &str) -> ast::types::SourceFile {
 
 fn wasm_to_coq(path: &Path) {
     if path.is_file() {
-        wasm_to_coq_file(path, None);
+        if let Err(e) = wasm_to_coq_file(path, None) {
+            eprintln!("{e}");
+        }
     } else {
         for entry in WalkDir::new(path)
             .follow_links(true)
@@ -90,7 +93,7 @@ fn wasm_to_coq(path: &Path) {
             let f_name = entry.file_name().to_string_lossy();
 
             if f_name.ends_with(".wasm") {
-                wasm_to_coq_file(
+                if let Err(e) = wasm_to_coq_file(
                     entry.path(),
                     Some(
                         entry
@@ -101,13 +104,15 @@ fn wasm_to_coq(path: &Path) {
                             .parent()
                             .unwrap(),
                     ),
-                );
+                ) {
+                    eprintln!("{e}");
+                }
             }
         }
     }
 }
 
-fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> String {
+fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> Result<String, String> {
     let absolute_path = path.canonicalize().unwrap();
     let filename = path
         .file_name()
@@ -123,7 +128,13 @@ fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> String {
         filename.to_string(),
         bytes.as_slice(),
     );
-    assert!(!coq.is_empty(), "Failed to parse {filename} to .v");
+
+    if let Err(e) = coq {
+        let WasmModuleParseError::UnsupportedOperation(error_message) = e;
+        let error = format!("Error: {error_message}");
+        return Err(error);
+    }
+
     let current_dir = std::env::current_dir().unwrap();
     let target_dir = match sub_path {
         Some(sp) => current_dir.join("out").join(sp),
@@ -132,8 +143,8 @@ fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> String {
     let filename = &filename.replace('.', "_");
     let coq_file_path = target_dir.join(format!("{filename}.v"));
     fs::create_dir_all(target_dir).unwrap();
-    std::fs::write(coq_file_path.clone(), coq).unwrap();
-    coq_file_path.to_str().unwrap().to_owned()
+    std::fs::write(coq_file_path.clone(), coq.unwrap()).unwrap();
+    Ok(coq_file_path.to_str().unwrap().to_owned())
 }
 
 #[allow(unused_imports)]
@@ -161,10 +172,10 @@ mod test {
         let mod_name = String::from("index");
         let coq =
             super::wasm_to_coq_translator::wasm_parser::translate_bytes(mod_name, bytes.as_slice());
-        assert!(!coq.is_empty());
+        assert!(coq.is_ok());
         //save to file
         let coq_file_path = current_dir.join("samples/test_wasm_to_coq.v");
-        std::fs::write(coq_file_path, coq).unwrap();
+        std::fs::write(coq_file_path, coq.unwrap()).unwrap();
     }
 
     #[test]
