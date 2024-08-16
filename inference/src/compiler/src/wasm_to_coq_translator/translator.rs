@@ -1,7 +1,8 @@
 use uuid::Uuid;
 use wasmparser::{
-    CompositeInnerType, Data, DataKind, Element, ElementKind, Export, FunctionBody, Global, Import,
-    MemoryType, OperatorsReader, RecGroup, RefType, Table, TypeRef, ValType,
+    AbstractHeapType, CompositeInnerType, Data, DataKind, Element, ElementKind, Export,
+    FunctionBody, Global, HeapType, Import, MemoryType, OperatorsReader, RecGroup, RefType, Table,
+    TypeRef, ValType,
 };
 
 #[derive(Debug)]
@@ -418,8 +419,8 @@ fn translate_operators_reader(
 
     for operator in operators_reader {
         current_op += 1;
-        if operator.is_ok() {
-            let op = operator.unwrap();
+        if let Ok(operator) = operator {
+            let op = operator;
             match op {
                 wasmparser::Operator::Nop => res.push_str("i_control ci_nop "),
                 wasmparser::Operator::Unreachable => res.push_str("i_control ci_unreachable "),
@@ -766,8 +767,33 @@ fn translate_operators_reader(
                     res.push_str(format!("i_variable (vi_global_set {global_index})\n").as_str());
                 }
                 wasmparser::Operator::RefNull { hty } => {
+                    match hty {
+                        HeapType::Abstract { ty, .. } => match ty {
+                            AbstractHeapType::Func => {
+                                res.push_str("i_reference (ri_ref_null rt_func)\n");
+                            }
+                            AbstractHeapType::Extern => {
+                                res.push_str("i_reference (ri__ref_null rt_extern)\n");
+                            }
+                            _ => {
+                                return Err(WasmModuleParseError::UnsupportedOperation(
+                                    format!("Failed to translate operator: {op:?}").to_string(),
+                                ));
+                            }
+                        },
+                        HeapType::Concrete(_) => {
+                            return Err(WasmModuleParseError::UnsupportedOperation(
+                                format!("Failed to translate operator: {op:?}").to_string(),
+                            ));
+                        }
+                    }
                     res.push_str(format!("i_reference (ri_null {hty:?})\n").as_str());
-                    //FIXME
+                }
+                wasmparser::Operator::RefIsNull => {
+                    res.push_str("i_reference ri_ref_is_null\n");
+                }
+                wasmparser::Operator::RefFunc { function_index } => {
+                    res.push_str(format!("i_reference (ri_ref_func {function_index})\n").as_str());
                 }
                 wasmparser::Operator::TableGet { table } => {
                     res.push_str(format!("i_table (ti_table_get {table})\n").as_str());
@@ -801,9 +827,8 @@ fn translate_operators_reader(
                     res.push_str(format!("i_table (ti_elem_drop {elem_index})\n").as_str());
                 }
                 _ => {
-                    let op_str = format!("{op:?}");
                     return Err(WasmModuleParseError::UnsupportedOperation(
-                        format!("Failed to translate operator: {op_str}").to_string(),
+                        format!("Failed to translate operator: {op:?}").to_string(),
                     ));
                 }
             }
