@@ -885,7 +885,7 @@ fn translate_functions(
     for (index, function_body) in function_bodies.iter().enumerate() {
         let id = get_id();
         let name = format!("Function{id}");
-        let type_index = function_type_indexes[index];
+        let type_index = *function_type_indexes.get(index).unwrap_or(&0);
 
         res.push_str(format!("Definition {name} : WasmFunction :=\n").as_str());
         res.push_str("{|\n");

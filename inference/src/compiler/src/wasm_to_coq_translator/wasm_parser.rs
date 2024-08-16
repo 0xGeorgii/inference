@@ -14,12 +14,16 @@ use wasmparser::{
 
 use crate::wasm_to_coq_translator::translator::{WasmModuleParseError, WasmParseData};
 
-pub fn translate_bytes(mod_name: String, bytes: &[u8]) -> Result<String, WasmModuleParseError> {
+pub fn translate_bytes(mod_name: &String, bytes: &[u8]) -> Result<String, WasmModuleParseError> {
     let mut data = Vec::new();
     let mut reader = std::io::Cursor::new(bytes);
     reader.read_to_end(&mut data).unwrap();
-    let parse_data = parse(mod_name, &data).unwrap();
-    parse_data.translate()
+    match parse(mod_name.clone(), &data) {
+        Ok(parse_data) => parse_data.translate(),
+        Err(e) => Err(WasmModuleParseError::UnsupportedOperation(
+            format!("\t{e} (module name: {mod_name})").to_string(), //FIXME why does it fail for some files?
+        )),
+    }
 }
 
 #[allow(clippy::match_same_arms)]
@@ -79,9 +83,7 @@ fn parse(mod_name: String, data: &[u8]) -> Result<WasmParseData> {
                     wasm_parse_data.elements.push(element?);
                 }
             }
-            DataCountSection { count, .. } => {
-                println!("Data Count Section: {}", count);
-            }
+            DataCountSection { .. } => {}
             DataSection(data) => {
                 for datum in data {
                     wasm_parse_data.data.push(datum?);

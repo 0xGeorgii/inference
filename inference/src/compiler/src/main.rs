@@ -86,9 +86,8 @@ fn wasm_to_coq(path: &Path) {
             .unwrap()
             .to_string_lossy()
             .replace(".wasm", "")
-            .replace('.', "_")
-            .to_string();
-        if let Err(e) = wasm_to_coq_file(path, None, filename) {
+            .replace('.', "_");
+        if let Err(e) = wasm_to_coq_file(path, None, &filename) {
             eprintln!("{e}");
         }
     } else {
@@ -111,7 +110,7 @@ fn wasm_to_coq(path: &Path) {
                             .parent()
                             .unwrap(),
                     ),
-                    f_name.replace(".wasm", "").replace('.', "_").to_string(),
+                    &f_name.replace(".wasm", "").replace('.', "_"),
                 ) {
                     eprintln!("{e}");
                 }
@@ -123,14 +122,11 @@ fn wasm_to_coq(path: &Path) {
 fn wasm_to_coq_file(
     path: &Path,
     sub_path: Option<&Path>,
-    filename: String,
+    filename: &String,
 ) -> Result<String, String> {
     let absolute_path = path.canonicalize().unwrap();
     let bytes = std::fs::read(absolute_path).unwrap();
-    let coq = wasm_to_coq_translator::wasm_parser::translate_bytes(
-        filename.to_string(),
-        bytes.as_slice(),
-    );
+    let coq = wasm_to_coq_translator::wasm_parser::translate_bytes(filename, bytes.as_slice());
 
     if let Err(e) = coq {
         let WasmModuleParseError::UnsupportedOperation(error_message) = e;
@@ -172,8 +168,10 @@ mod test {
 
         let bytes = std::fs::read(absolute_path).unwrap();
         let mod_name = String::from("index");
-        let coq =
-            super::wasm_to_coq_translator::wasm_parser::translate_bytes(mod_name, bytes.as_slice());
+        let coq = super::wasm_to_coq_translator::wasm_parser::translate_bytes(
+            &mod_name,
+            bytes.as_slice(),
+        );
         assert!(coq.is_ok());
         //save to file
         let coq_file_path = current_dir.join("samples/test_wasm_to_coq.v");
