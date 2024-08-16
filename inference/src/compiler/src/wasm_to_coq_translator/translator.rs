@@ -750,9 +750,60 @@ fn translate_operators_reader(
                 wasmparser::Operator::I64ExtendI32U => {
                     res.push_str("i_numeric ni_i64_extend_i32_u\n");
                 }
+                wasmparser::Operator::LocalGet { local_index } => {
+                    res.push_str(format!("i_variable (vi_local_get {local_index})\n").as_str());
+                }
+                wasmparser::Operator::LocalSet { local_index } => {
+                    res.push_str(format!("i_variable (vi_local_set {local_index})\n").as_str());
+                }
+                wasmparser::Operator::LocalTee { local_index } => {
+                    res.push_str(format!("i_variable (vi_local_tee {local_index})\n").as_str());
+                }
+                wasmparser::Operator::GlobalGet { global_index } => {
+                    res.push_str(format!("i_variable (vi_global_get {global_index})\n").as_str());
+                }
+                wasmparser::Operator::GlobalSet { global_index } => {
+                    res.push_str(format!("i_variable (vi_global_set {global_index})\n").as_str());
+                }
+                wasmparser::Operator::RefNull { hty } => {
+                    res.push_str(format!("i_reference (ri_null {hty:?})\n").as_str());
+                    //FIXME
+                }
+                wasmparser::Operator::TableGet { table } => {
+                    res.push_str(format!("i_table (ti_table_get {table})\n").as_str());
+                }
+                wasmparser::Operator::TableSet { table } => {
+                    res.push_str(format!("i_table (ti_table_set {table})\n").as_str());
+                }
+                wasmparser::Operator::TableSize { table } => {
+                    res.push_str(format!("i_table (ti_table_size {table})\n").as_str());
+                }
+                wasmparser::Operator::TableGrow { table } => {
+                    res.push_str(format!("i_table (ti_table_grow {table})\n").as_str());
+                }
+                wasmparser::Operator::TableFill { table } => {
+                    res.push_str(format!("i_table (ti_table_fill {table})\n").as_str());
+                }
+                wasmparser::Operator::TableCopy {
+                    src_table,
+                    dst_table,
+                } => {
+                    res.push_str(
+                        format!("i_table (ti_table_copy {src_table} {dst_table})\n").as_str(),
+                    );
+                }
+                wasmparser::Operator::TableInit { elem_index, table } => {
+                    res.push_str(
+                        format!("i_table (ti_table_init {elem_index} {table})\n").as_str(),
+                    );
+                }
+                wasmparser::Operator::ElemDrop { elem_index } => {
+                    res.push_str(format!("i_table (ti_elem_drop {elem_index})\n").as_str());
+                }
                 _ => {
+                    let op_str = format!("{op:?}");
                     return Err(WasmModuleParseError::UnsupportedOperation(
-                        format!("Failed to translate operator: {op:?}").to_string(),
+                        format!("Failed to translate operator: {op_str}").to_string(),
                     ));
                 }
             }
