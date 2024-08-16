@@ -81,7 +81,14 @@ fn parse(source_code: &str) -> ast::types::SourceFile {
 
 fn wasm_to_coq(path: &Path) {
     if path.is_file() {
-        if let Err(e) = wasm_to_coq_file(path, None) {
+        let filename = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(".wasm", "")
+            .replace('.', "_")
+            .to_string();
+        if let Err(e) = wasm_to_coq_file(path, None, filename) {
             eprintln!("{e}");
         }
     } else {
@@ -104,6 +111,7 @@ fn wasm_to_coq(path: &Path) {
                             .parent()
                             .unwrap(),
                     ),
+                    f_name.replace(".wasm", "").replace('.', "_").to_string(),
                 ) {
                     eprintln!("{e}");
                 }
@@ -112,16 +120,12 @@ fn wasm_to_coq(path: &Path) {
     }
 }
 
-fn wasm_to_coq_file(path: &Path, sub_path: Option<&Path>) -> Result<String, String> {
+fn wasm_to_coq_file(
+    path: &Path,
+    sub_path: Option<&Path>,
+    filename: String,
+) -> Result<String, String> {
     let absolute_path = path.canonicalize().unwrap();
-    let filename = path
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap();
-    let fnlen = filename.rfind('.').unwrap_or(filename.len());
-    let filename = &filename[..fnlen];
-
     let bytes = std::fs::read(absolute_path).unwrap();
     let coq = wasm_to_coq_translator::wasm_parser::translate_bytes(
         filename.to_string(),
