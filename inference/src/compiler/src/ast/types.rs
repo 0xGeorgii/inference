@@ -1,15 +1,24 @@
 #![allow(dead_code)]
 
-#[derive(Debug, Clone)]
+use core::fmt;
+use std::fmt::{Display, Formatter};
+
+#[derive(Debug, Default, Clone, Hash, Eq, PartialEq)]
 pub struct Position {
     pub row: usize,
     pub column: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Hash, Eq, PartialEq)]
 pub struct Location {
     pub start: Position,
     pub end: Position,
+}
+
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.start.row, self.start.column)
+    }
 }
 
 #[derive(Debug)]
@@ -28,7 +37,7 @@ pub struct UseDirective {
 }
 
 #[derive(Debug)]
-pub struct ContextDefinition {
+pub struct SpecDefinition {
     pub location: Location,
     pub name: Identifier,
     pub definitions: Vec<Definition>,
@@ -56,7 +65,7 @@ pub struct EnumDefinition {
     pub variants: Vec<Identifier>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Hash, Eq, PartialEq)]
 pub struct Identifier {
     pub location: Location,
     pub name: String,
@@ -64,7 +73,7 @@ pub struct Identifier {
 
 #[derive(Debug)]
 pub enum Definition {
-    Context(ContextDefinition),
+    Spec(SpecDefinition),
     Struct(StructDefinition),
     Enum(EnumDefinition),
     Constant(ConstantDefinition),
@@ -113,6 +122,15 @@ pub struct Argument {
 }
 
 #[derive(Debug)]
+pub enum BlockType {
+    Block(Block),
+    Assume(AssumeStatement),
+    Forall(ForallStatement),
+    Exists(ExistsStatement),
+    Unique(UniqueStatement),
+}
+
+#[derive(Debug)]
 pub struct Block {
     pub location: Location,
     pub statements: Vec<Statement>,
@@ -123,13 +141,17 @@ pub enum Statement {
     Block(Block),
     Expression(ExpressionStatement),
     Return(ReturnStatement),
-    Filter(FilterStatement),
-    For(ForStatement),
+    Assume(AssumeStatement),
+    Forall(ForallStatement),
+    Exists(ExistsStatement),
+    Unique(UniqueStatement),
+    Loop(LoopStatement),
+    Break(BreakStatement),
     If(IfStatement),
     VariableDefinition(VariableDefinitionStatement),
     TypeDefinition(TypeDefinitionStatement),
     Assert(AssertStatement),
-    Verify(VerifyStatement),
+    ConstantDefinition(ConstantDefinition),
 }
 
 #[derive(Debug)]
@@ -145,18 +167,39 @@ pub struct ReturnStatement {
 }
 
 #[derive(Debug)]
-pub struct FilterStatement {
+pub struct AssumeStatement {
     pub location: Location,
     pub block: Block,
 }
 
 #[derive(Debug)]
-pub struct ForStatement {
+pub struct ForallStatement {
     pub location: Location,
-    pub initializer: Option<VariableDefinitionStatement>,
+    pub block: Block,
+}
+
+#[derive(Debug)]
+pub struct ExistsStatement {
+    pub location: Location,
+    pub block: Block,
+}
+
+#[derive(Debug)]
+pub struct UniqueStatement {
+    pub location: Location,
+    pub block: Block,
+}
+
+#[derive(Debug)]
+pub struct LoopStatement {
+    pub location: Location,
     pub condition: Option<Expression>,
-    pub update: Option<Expression>,
     pub body: Box<Statement>,
+}
+
+#[derive(Debug)]
+pub struct BreakStatement {
+    pub location: Location,
 }
 
 #[derive(Debug)]
@@ -185,17 +228,17 @@ pub struct TypeDefinitionStatement {
 
 #[derive(Debug)]
 pub enum Expression {
-    Assign(AssignExpression),
-    ArrayIndexAccess(ArrayIndexAccessExpression),
-    MemberAccess(MemberAccessExpression),
-    FunctionCall(FunctionCallExpression),
-    PrefixUnary(PrefixUnaryExpression),
-    Parenthesized(ParenthesizedExpression),
-    TypeOf(TypeOfExpression),
-    Binary(BinaryExpression),
+    Assign(Box<AssignExpression>),
+    ArrayIndexAccess(Box<ArrayIndexAccessExpression>),
+    MemberAccess(Box<MemberAccessExpression>),
+    FunctionCall(Box<FunctionCallExpression>),
+    PrefixUnary(Box<PrefixUnaryExpression>),
+    Parenthesized(Box<ParenthesizedExpression>),
+    Binary(Box<BinaryExpression>),
     Literal(Literal),
     Identifier(Identifier),
-    Type(Type),
+    Type(Box<Type>),
+    Uzumaki(UzumakiExpression),
 }
 
 #[derive(Debug)]
@@ -223,7 +266,12 @@ pub struct MemberAccessExpression {
 pub struct FunctionCallExpression {
     pub location: Location,
     pub function: Box<Expression>,
-    pub arguments: Option<Vec<Expression>>,
+    pub arguments: Option<Vec<(Identifier, Expression)>>,
+}
+
+#[derive(Debug)]
+pub struct UzumakiExpression {
+    pub location: Location,
 }
 
 #[derive(Debug)]
@@ -245,21 +293,9 @@ pub struct AssertStatement {
 }
 
 #[derive(Debug)]
-pub struct VerifyStatement {
-    pub location: Location,
-    pub function_call: Box<FunctionCallExpression>,
-}
-
-#[derive(Debug)]
 pub struct ParenthesizedExpression {
     pub location: Location,
     pub expression: Box<Expression>,
-}
-
-#[derive(Debug)]
-pub struct TypeOfExpression {
-    pub location: Location,
-    pub typeref: Identifier,
 }
 
 #[derive(Debug)]
@@ -278,6 +314,12 @@ pub enum OperatorKind {
     Le,
     Gt,
     Ge,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitNot,
+    Shl,
+    Shr,
 }
 
 #[derive(Debug)]
@@ -294,6 +336,7 @@ pub enum Literal {
     Bool(BoolLiteral),
     String(StringLiteral),
     Number(NumberLiteral),
+    Unit(UnitLiteral),
 }
 
 #[derive(Debug)]
@@ -321,11 +364,18 @@ pub struct NumberLiteral {
 }
 
 #[derive(Debug)]
+pub struct UnitLiteral {
+    pub location: Location,
+}
+
+#[derive(Debug)]
 pub enum Type {
-    Array(TypeArray),
+    Array(Box<TypeArray>),
     Simple(SimpleType),
     Generic(GenericType),
-    Qualified(QualifiedType),
+    Function(FunctionType),
+    QualifiedName(QualifiedName),
+    Qualified(TypeQualifiedName),
     Identifier(Identifier),
 }
 
@@ -343,9 +393,23 @@ pub struct GenericType {
 }
 
 #[derive(Debug)]
-pub struct QualifiedType {
+pub struct FunctionType {
+    pub location: Location,
+    pub arguments: Vec<Type>,
+    pub returns: Box<Type>,
+}
+
+#[derive(Debug)]
+pub struct QualifiedName {
     pub location: Location,
     pub qualifier: Identifier,
+    pub name: Identifier,
+}
+
+#[derive(Debug)]
+pub struct TypeQualifiedName {
+    pub location: Location,
+    pub alias: Identifier,
     pub name: Identifier,
 }
 
@@ -353,5 +417,5 @@ pub struct QualifiedType {
 pub struct TypeArray {
     pub location: Location,
     pub element_type: Box<Type>,
-    pub size: Option<NumberLiteral>,
+    pub size: Option<Box<Expression>>,
 }

@@ -2,14 +2,14 @@
 
 use super::types::{
     Argument, ArrayIndexAccessExpression, ArrayLiteral, AssertStatement, AssignExpression,
-    BinaryExpression, Block, BoolLiteral, ConstantDefinition, ContextDefinition, Definition,
-    EnumDefinition, Expression, ExpressionStatement, ExternalFunctionDefinition, FilterStatement,
-    ForStatement, FunctionCallExpression, FunctionDefinition, GenericType, Identifier, IfStatement,
-    Literal, Location, MemberAccessExpression, NumberLiteral, OperatorKind,
-    ParenthesizedExpression, Position, PrefixUnaryExpression, QualifiedType, ReturnStatement,
-    SimpleType, SourceFile, Statement, StringLiteral, StructDefinition, StructField, Type,
-    TypeArray, TypeDefinition, TypeDefinitionStatement, TypeOfExpression, UnaryOperatorKind,
-    UseDirective, VariableDefinitionStatement, VerifyStatement,
+    AssumeStatement, BinaryExpression, Block, BoolLiteral, BreakStatement, ConstantDefinition,
+    Definition, EnumDefinition, Expression, ExpressionStatement, ExternalFunctionDefinition,
+    FunctionCallExpression, FunctionDefinition, FunctionType, GenericType, Identifier, IfStatement,
+    Literal, Location, LoopStatement, MemberAccessExpression, NumberLiteral, OperatorKind,
+    ParenthesizedExpression, Position, PrefixUnaryExpression, QualifiedName, ReturnStatement,
+    SimpleType, SourceFile, SpecDefinition, Statement, StringLiteral, StructDefinition,
+    StructField, Type, TypeArray, TypeDefinition, TypeDefinitionStatement, TypeQualifiedName,
+    UnaryOperatorKind, UseDirective, VariableDefinitionStatement,
 };
 
 impl SourceFile {
@@ -58,7 +58,7 @@ impl UseDirective {
     }
 }
 
-impl ContextDefinition {
+impl SpecDefinition {
     pub fn new(
         start_row: usize,
         start_column: usize,
@@ -67,7 +67,7 @@ impl ContextDefinition {
         name: Identifier,
         definitions: Vec<Definition>,
     ) -> Self {
-        ContextDefinition {
+        SpecDefinition {
             location: Location {
                 start: Position {
                     row: start_row,
@@ -397,7 +397,7 @@ impl ReturnStatement {
     }
 }
 
-impl FilterStatement {
+impl AssumeStatement {
     pub fn new(
         start_row: usize,
         start_column: usize,
@@ -405,7 +405,7 @@ impl FilterStatement {
         end_column: usize,
         block: Block,
     ) -> Self {
-        FilterStatement {
+        AssumeStatement {
             location: Location {
                 start: Position {
                     row: start_row,
@@ -421,19 +421,17 @@ impl FilterStatement {
     }
 }
 
-impl ForStatement {
+impl LoopStatement {
     #![allow(clippy::too_many_arguments)]
     pub fn new(
         start_row: usize,
         start_column: usize,
         end_row: usize,
         end_column: usize,
-        initializer: Option<VariableDefinitionStatement>,
         condition: Option<Expression>,
-        update: Option<Expression>,
         body: Statement,
     ) -> Self {
-        ForStatement {
+        LoopStatement {
             location: Location {
                 start: Position {
                     row: start_row,
@@ -444,10 +442,25 @@ impl ForStatement {
                     column: end_column,
                 },
             },
-            initializer,
             condition,
-            update,
             body: Box::new(body),
+        }
+    }
+}
+
+impl BreakStatement {
+    pub fn new(start_row: usize, start_column: usize, end_row: usize, end_column: usize) -> Self {
+        BreakStatement {
+            location: Location {
+                start: Position {
+                    row: start_row,
+                    column: start_column,
+                },
+                end: Position {
+                    row: end_row,
+                    column: end_column,
+                },
+            },
         }
     }
 }
@@ -622,7 +635,7 @@ impl FunctionCallExpression {
         end_row: usize,
         end_column: usize,
         function: Expression,
-        arguments: Option<Vec<Expression>>,
+        arguments: Option<Vec<(Identifier, Expression)>>,
     ) -> Self {
         FunctionCallExpression {
             location: Location {
@@ -691,29 +704,6 @@ impl AssertStatement {
     }
 }
 
-impl VerifyStatement {
-    pub fn new(
-        start_row: usize,
-        start_column: usize,
-        end_row: usize,
-        end_column: usize,
-        function_call: FunctionCallExpression,
-    ) -> Self {
-        VerifyStatement {
-            location: Location {
-                start: Position {
-                    row: start_row,
-                    column: start_column,
-                },
-                end: Position {
-                    row: end_row,
-                    column: end_column,
-                },
-            },
-            function_call: Box::new(function_call),
-        }
-    }
-}
 impl ParenthesizedExpression {
     pub fn new(
         start_row: usize,
@@ -734,30 +724,6 @@ impl ParenthesizedExpression {
                 },
             },
             expression: Box::new(expression),
-        }
-    }
-}
-
-impl TypeOfExpression {
-    pub fn new(
-        start_row: usize,
-        start_column: usize,
-        end_row: usize,
-        end_column: usize,
-        typeref: Identifier,
-    ) -> Self {
-        TypeOfExpression {
-            location: Location {
-                start: Position {
-                    row: start_row,
-                    column: start_column,
-                },
-                end: Position {
-                    row: end_row,
-                    column: end_column,
-                },
-            },
-            typeref,
         }
     }
 }
@@ -936,7 +902,33 @@ impl GenericType {
     }
 }
 
-impl QualifiedType {
+impl FunctionType {
+    pub fn new(
+        start_row: usize,
+        start_column: usize,
+        end_row: usize,
+        end_column: usize,
+        arguments: Vec<Type>,
+        returns: Box<Type>,
+    ) -> Self {
+        FunctionType {
+            location: Location {
+                start: Position {
+                    row: start_row,
+                    column: start_column,
+                },
+                end: Position {
+                    row: end_row,
+                    column: end_column,
+                },
+            },
+            arguments,
+            returns,
+        }
+    }
+}
+
+impl QualifiedName {
     pub fn new(
         start_row: usize,
         start_column: usize,
@@ -945,7 +937,7 @@ impl QualifiedType {
         qualifier: Identifier,
         name: Identifier,
     ) -> Self {
-        QualifiedType {
+        QualifiedName {
             location: Location {
                 start: Position {
                     row: start_row,
@@ -962,6 +954,32 @@ impl QualifiedType {
     }
 }
 
+impl TypeQualifiedName {
+    pub fn new(
+        start_row: usize,
+        start_column: usize,
+        end_row: usize,
+        end_column: usize,
+        alias: Identifier,
+        name: Identifier,
+    ) -> Self {
+        TypeQualifiedName {
+            location: Location {
+                start: Position {
+                    row: start_row,
+                    column: start_column,
+                },
+                end: Position {
+                    row: end_row,
+                    column: end_column,
+                },
+            },
+            alias,
+            name,
+        }
+    }
+}
+
 impl TypeArray {
     pub fn new(
         start_row: usize,
@@ -969,7 +987,7 @@ impl TypeArray {
         end_row: usize,
         end_column: usize,
         element_type: Box<Type>,
-        size: Option<NumberLiteral>,
+        size: Option<Box<Expression>>,
     ) -> Self {
         TypeArray {
             location: Location {
