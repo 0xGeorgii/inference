@@ -1,22 +1,32 @@
 use actix_cors::Cors;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
-use inference::compile_to_wat;
-use serde::Deserialize;
+use inference::{compile_to_wat, wat_to_wasm};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 struct CompileRequest {
     code: String,
 }
 
-fn parse_inf_file(input: &str) -> String {
-    compile_to_wat(input)
+#[derive(Deserialize, Serialize)]
+struct Response {
+    wat: String,
+    wasm: Vec<u8>,
+    errors: Vec<String>,
+}
+
+fn parse_inf_file(input: &str) -> Response {
+    let wat = compile_to_wat(input);
+    let wasm = wat_to_wasm(&wat);
+    let errors = vec![];
+    Response { wat, wasm, errors }
 }
 
 #[post("/compile")]
 async fn compile_code(payload: web::Json<CompileRequest>) -> impl Responder {
     let code = &payload.code;
     let compiled_result = parse_inf_file(code);
-    HttpResponse::Ok().body(compiled_result)
+    HttpResponse::Ok().json(compiled_result)
 }
 
 #[actix_web::main]

@@ -27,6 +27,25 @@
                 "--rust"
             ],
             "cwd": "${workspaceFolder}",
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug playground",
+            "preLaunchTask": "BuildCompiler",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=inference-playground-server",
+                    "--package=inference-playground-server"
+                ],
+                "filter": {
+                    "name": "inference-playground-server",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
         }
     ]
 }

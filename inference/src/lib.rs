@@ -13,6 +13,10 @@ pub fn compile_to_wat(source_code: &str) -> String {
     inference_wat_codegen::wat_generator::generate_for_source_file(&ast)
 }
 
+pub fn wat_to_wasm(wat: &str) -> Vec<u8> {
+    wat::parse_str(wat).unwrap()
+}
+
 pub fn compile_to_wasm(source_code: &str) -> Vec<u8> {
     let wat = compile_to_wat(source_code);
     wat::parse_str(wat).unwrap()
