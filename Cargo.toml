@@ -12,8 +12,6 @@ members = [
     "playground-server",
 ]
 
-exclude = ["riscv-runtime"]
-
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
