@@ -6,7 +6,16 @@
 /// # Panics
 ///
 /// This function will panic if there is an error loading the Inference grammar.
-#[must_use]
+/// Compiles the given source code to WebAssembly Text format (WAT).
+///
+/// # Errors
+///
+/// This function will return an error if the source code cannot be parsed or if there is an error during the AST building process.
+///
+/// # Panics
+///
+/// This function will panic if there is an error loading the Inference grammar.
+#[must_use = "This function returns the compiled WebAssembly Text format as a string"]
 pub fn compile_to_wat(source_code: &str) -> anyhow::Result<String> {
     let inference_language = tree_sitter_inference::language();
     let mut parser = tree_sitter::Parser::new();
@@ -30,7 +39,7 @@ pub fn compile_to_wat(source_code: &str) -> anyhow::Result<String> {
 /// # Errors
 ///
 /// This function will return an error if the WAT string cannot be parsed or if there is an error during the encoding process.
-#[must_use = "The result should be used to avoid unnecessary computations"]
+#[must_use = "This function returns the WebAssembly binary format as a vector of bytes"]
 pub fn wat_to_wasm(wat: &str) -> anyhow::Result<Vec<u8>> {
     let buf = inf_wast::parser::ParseBuffer::new(wat)?;
     let mut module = inf_wast::parser::parse::<inf_wast::Wat>(&buf)?;
@@ -47,6 +56,7 @@ pub fn wat_to_wasm(wat: &str) -> anyhow::Result<Vec<u8>> {
 /// # Panics
 ///
 /// This function will panic if the WAT string cannot be parsed.
+#[must_use = "This function compiles Inference source code to the WebAssembly binary format as a vector of bytes"]
 pub fn compile_to_wasm(source_code: &str) -> anyhow::Result<Vec<u8>> {
     let wat = compile_to_wat(source_code)?;
     wat_to_wasm(&wat)
