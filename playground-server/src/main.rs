@@ -18,15 +18,26 @@ struct Response {
 }
 
 fn parse_inf_file(input: &str) -> Response {
-    let (wat, errors) = match compile_to_wat(input) {
-        Ok(wat) => (wat, vec![]),
-        Err(e) => (String::new(), vec![e.to_string()]),
+    let mut wasm = vec![];
+    let mut errors = vec![];
+
+    let wat = match compile_to_wat(input) {
+        Ok(w) => w,
+        Err(e) => {
+            errors.push(e.to_string());
+            return Response {
+                wat: String::new(),
+                wasm,
+                errors,
+            };
+        }
     };
+
     if !wat.is_empty() {
-        let (wasm, errors) = match wat_to_wasm(&wat) {
-            Ok(wasm) => (wasm, errors),
-            Err(e) => (vec![], vec![e.to_string()]),
-        };
+        wat_to_wasm(&wat)
+            .map(|w| wasm = w)
+            .unwrap_or_else(|e| errors.push(e.to_string()));
+
         let wat = format(&wat);
         Response { wat, wasm, errors }
     } else {
