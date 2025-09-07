@@ -48,13 +48,6 @@ pub trait Node: Any + std::fmt::Debug {
 }
 
 #[allow(dead_code)]
-impl dyn Node {
-    pub fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[allow(dead_code)]
 #[derive(Clone, Default, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Mutability {
     #[default]
@@ -113,29 +106,6 @@ macro_rules! ast_enum {
                 }
             }
         }
-
-        impl From<&$name> for $crate::node_kind::NodeKind {
-            fn from(n: &$name) -> Self {
-                match n {
-                    $(
-                        $name::$arm(a) => {
-                            $crate::node_kind::NodeKind::$name($name::$arm(a.clone()))
-                        }
-                    )*
-                }
-            }
-        }
-
-        impl From<$name> for $crate::node_kind::NodeKind {
-            fn from(n: $name) -> Self {
-                match n {
-                    $(
-                        $name::$arm(inner) => $crate::node_kind::NodeKind::$name($name::$arm(inner.clone())),
-                    )*
-                }
-            }
-        }
-
     };
 
     (@id_arm $inner:ident, ) => {
@@ -143,11 +113,7 @@ macro_rules! ast_enum {
     };
 
     (@location_arm $inner:ident, ) => {
-        $inner.location().clone()
-    };
-
-    (@location_arm $inner:ident, skip) => {
-        $crate::node::Location::default()
+        $inner.location()
     };
 }
 
