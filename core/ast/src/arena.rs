@@ -1,11 +1,12 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::nodes::{AstNode, Definition, TypeDefinition};
+use crate::nodes::{AstNode, Definition, SourceFile, TypeDefinition};
 
 #[derive(Default, Clone)]
 pub struct Arena {
     pub(crate) nodes: HashMap<u32, AstNode>,
     pub(crate) node_routes: Vec<NodeRoute>,
+    pub sources: Vec<SourceFile>,
 }
 
 impl Arena {

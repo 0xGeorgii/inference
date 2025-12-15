@@ -104,8 +104,9 @@ impl<'a> Builder<'a, InitState> {
             }
             res.push(ast);
         }
+        self.arena.sources = res;
         Ok(Builder {
-            arena: Arena::default(),
+            arena: std::mem::take(&mut self.arena),
             source_code: Vec::new(),
             _state: PhantomData,
         })

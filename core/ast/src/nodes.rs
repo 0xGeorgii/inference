@@ -95,6 +95,7 @@ macro_rules! ast_nodes {
     };
 }
 
+#[macro_export]
 macro_rules! ast_enum {
     (
         $(#[$outer:meta])*
@@ -308,7 +309,6 @@ pub enum OperatorKind {
 }
 
 ast_nodes! {
-
     pub struct SourceFile {
         pub directives: Vec<Directive>,
         pub definitions: Vec<Definition>,
@@ -518,7 +518,6 @@ ast_nodes! {
 
     pub struct TypeArray {
         pub element_type: Type,
-        pub size: Option<Expression>
+        pub size: Option<Expression>,
     }
-
 }

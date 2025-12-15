@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::type_info::TypeInfo;
 
+#[derive(Clone, Debug)]
 pub enum Directive {
     Use(Rc<UseDirective>),
 }
@@ -17,6 +18,7 @@ pub enum Definition {
     Type(Rc<TypeDefinition>),
 }
 
+#[derive(Clone, Debug)]
 pub enum BlockType {
     Block(Rc<Block>),
     Assume(Rc<Block>),
@@ -25,6 +27,7 @@ pub enum BlockType {
     Unique(Rc<Block>),
 }
 
+#[derive(Clone, Debug)]
 pub enum Statement {
     Block(BlockType),
     Expression(Expression),
@@ -39,6 +42,7 @@ pub enum Statement {
     ConstantDefinition(Rc<ConstantDefinition>),
 }
 
+#[derive(Clone, Debug)]
 pub enum Expression {
     ArrayIndexAccess(Rc<ArrayIndexAccessExpression>),
     Binary(Rc<BinaryExpression>),
@@ -49,10 +53,11 @@ pub enum Expression {
     PrefixUnary(Rc<PrefixUnaryExpression>),
     Parenthesized(Rc<ParenthesizedExpression>),
     Literal(Literal),
-    TypeInfo(TypeInfo), //TODO: need it
+    TypeInfo(TypeInfo),
     Uzumaki(Rc<UzumakiExpression>),
 }
 
+#[derive(Clone, Debug)]
 pub enum Literal {
     Array(Rc<ArrayLiteral>),
     Bool(Rc<BoolLiteral>),
@@ -61,6 +66,7 @@ pub enum Literal {
     Unit(Rc<UnitLiteral>),
 }
 
+#[derive(Clone, Debug)]
 pub enum ArgumentType {
     SelfReference(Rc<SelfReference>),
     IgnoreArgument(Rc<IgnoreArgument>),
@@ -101,6 +107,7 @@ pub enum OperatorKind {
     Shr,
 }
 
+#[derive(Clone, Debug)]
 pub struct SourceFile {
     pub directives: Vec<Directive>,
     pub definitions: Vec<Definition>,
@@ -113,33 +120,39 @@ pub struct UseDirective {
     pub from: Option<String>,
 }
 
+#[derive(Clone, Debug)]
 pub struct SpecDefinition {
     pub name: String,
     pub definitions: Vec<Definition>,
 }
 
+#[derive(Clone, Debug)]
 pub struct StructDefinition {
     pub name: String,
     pub fields: Vec<Rc<StructField>>,
     pub methods: Vec<Rc<FunctionDefinition>>,
 }
 
+#[derive(Clone, Debug)]
 pub struct StructField {
     pub name: String,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct EnumDefinition {
     pub name: String,
     pub variants: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
 pub struct ConstantDefinition {
     pub name: String,
     pub type_info: TypeInfo,
     pub value: Literal,
 }
 
+#[derive(Clone, Debug)]
 pub struct FunctionDefinition {
     pub name: String,
     pub type_parameters: Option<Vec<String>>,
@@ -148,56 +161,68 @@ pub struct FunctionDefinition {
     pub body: BlockType,
 }
 
+#[derive(Clone, Debug)]
 pub struct ExternalFunctionDefinition {
     pub name: String,
     pub arguments: Option<Vec<ArgumentType>>,
     pub returns: Option<TypeInfo>,
 }
 
+#[derive(Clone, Debug)]
 pub struct TypeDefinition {
     pub name: String,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct Argument {
     pub name: String,
     pub is_mut: bool,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct SelfReference {
     pub is_mut: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct IgnoreArgument {
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct Block {
     pub statements: Vec<Statement>,
 }
 
+#[derive(Clone, Debug)]
 pub struct ExpressionStatement {
     pub expression: Expression,
 }
 
+#[derive(Clone, Debug)]
 pub struct ReturnStatement {
     pub expression: Expression,
 }
 
+#[derive(Clone, Debug)]
 pub struct LoopStatement {
     pub condition: Option<Expression>,
     pub body: BlockType,
 }
 
+#[derive(Clone, Debug)]
 pub struct BreakStatement {}
 
+#[derive(Clone, Debug)]
 pub struct IfStatement {
     pub condition: Expression,
     pub if_arm: BlockType,
     pub else_arm: Option<BlockType>,
 }
 
+#[derive(Clone, Debug)]
 pub struct VariableDefinitionStatement {
     pub name: String,
     pub type_info: TypeInfo,
@@ -205,34 +230,40 @@ pub struct VariableDefinitionStatement {
     pub is_uzumaki: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct TypeDefinitionStatement {
     pub name: String,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct AssignStatement {
     pub left: Expression,
     pub right: Expression,
 }
 
+#[derive(Clone, Debug)]
 pub struct ArrayIndexAccessExpression {
     pub array: Expression,
     pub index: Expression,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct MemberAccessExpression {
     pub expression: Expression,
     pub name: String,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct TypeMemberAccessExpression {
     pub expression: Expression,
     pub name: String,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct FunctionCallExpression {
     pub name: String,
     pub function: Expression,
@@ -241,31 +272,37 @@ pub struct FunctionCallExpression {
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct StructExpression {
     pub name: String,
     pub fields: Option<Vec<(String, Expression)>>,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct UzumakiExpression {
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct PrefixUnaryExpression {
     pub expression: Expression,
     pub operator: UnaryOperatorKind,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct AssertStatement {
     pub expression: Expression,
 }
 
+#[derive(Clone, Debug)]
 pub struct ParenthesizedExpression {
     pub expression: Expression,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct BinaryExpression {
     pub left: Expression,
     pub operator: OperatorKind,
@@ -273,24 +310,29 @@ pub struct BinaryExpression {
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct ArrayLiteral {
     pub elements: Option<Vec<Expression>>,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct BoolLiteral {
     pub value: bool,
 }
 
+#[derive(Clone, Debug)]
 pub struct StringLiteral {
     pub value: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct NumberLiteral {
     pub value: String,
     pub type_info: TypeInfo,
 }
 
+#[derive(Clone, Debug)]
 pub struct UnitLiteral {}
 
 pub struct SimpleType {
