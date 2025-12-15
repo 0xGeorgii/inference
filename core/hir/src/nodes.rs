@@ -6,6 +6,7 @@ pub enum Directive {
     Use(Rc<UseDirective>),
 }
 
+#[derive(Clone, Debug)]
 pub enum Definition {
     Spec(Rc<SpecDefinition>),
     Struct(Rc<StructDefinition>),
@@ -105,6 +106,7 @@ pub struct SourceFile {
     pub definitions: Vec<Definition>,
 }
 
+#[derive(Debug)]
 pub struct UseDirective {
     pub imported_types: Option<Vec<String>>,
     pub segments: Option<Vec<String>>,

@@ -1,10 +1,10 @@
-use crate::{arena::Arena, type_infer::TypeChecker};
+use crate::{arena::Arena, symbol_table::SymbolTable};
 use inference_ast::arena::Arena as AstArena;
 
 #[derive(Clone, Default)]
 pub struct Hir {
     pub arena: Arena,
-    pub type_checker: TypeChecker,
+    pub symbol_table: SymbolTable,
 }
 
 impl Hir {
@@ -12,7 +12,7 @@ impl Hir {
     pub fn new(arena: AstArena) -> Self {
         Self {
             arena: Arena::default(),
-            type_checker: TypeChecker::default(),
+            symbol_table: SymbolTable::default(),
         }
     }
 }
