@@ -8,7 +8,12 @@ on:
 
 jobs:
   coverage:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [Ubuntu]
+        toolchain:
+          - nightly
+    runs-on: [self-hosted, X64, "${{ matrix.os }}"]
     steps:
       - uses: actions/checkout@v4
       
