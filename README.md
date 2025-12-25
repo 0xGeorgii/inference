@@ -52,6 +52,26 @@ Artifacts are written to an `out/` directory relative to the working directory. 
 | 0    | Success                         |
 | 1    | Usage / IO / Parse failure      |
 
+## Distribution
+
+Prebuilt `infc` binaries distributables are arranged in the following directory structure:
+
+```
+<distribution-folder>/
+├── infc                    # The main CLI binary
+├── bin/
+│   ├── inf-llc            # LLVM compiler with Inference intrinsics
+│   └── rust-lld           # WebAssembly linker
+└── lib/                   # (Linux only)
+    └── libLLVM.so.*       # LLVM shared library
+```
+
+**Notes:**
+- On Linux, the LLVM shared library must be in the `lib/` directory.
+- On Windows, all required DLL files should be placed in the `bin/` directory next to the executables.
+- The `infc` binary automatically locates these dependencies relative to its own location.
+- No system LLVM installation is required for end users.
+
 ## Roadmap
 
 Check out open [issues](https://github.com/Inferara/inference/issues).
