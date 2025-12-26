@@ -181,11 +181,16 @@ fn configure_llvm_env(cmd: &mut Command) -> anyhow::Result<()> {
 
 /// Configure environment for Windows (DLLs are in bin/ next to executables, so no-op)
 #[cfg(target_os = "windows")]
-fn configure_llvm_env(_cmd: &mut Command) -> () {
+#[allow(clippy::unnecessary_wraps)]
+fn configure_llvm_env(_cmd: &mut Command) -> anyhow::Result<()> {
     // On Windows, DLLs are placed in the same directory as the executables,
     // so Windows will find them automatically. No environment modification needed.
+    Ok(())
 }
 
 /// Fallback for unsupported platforms
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn configure_llvm_env(_cmd: &mut Command) -> () {}
+#[allow(clippy::unnecessary_wraps)]
+fn configure_llvm_env(_cmd: &mut Command) -> anyhow::Result<()> {
+    Ok(())
+}
