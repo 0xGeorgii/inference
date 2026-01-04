@@ -11,19 +11,36 @@ jobs:
   coverage:
     strategy:
       matrix:
-        os: [Linux]
-        toolchain:
-          - nightly
-    runs-on: [self-hosted, X64, "${{ matrix.os }}"]
+        os: [macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4.1.3
         with:
           lfs: true
       
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
+      
+      - name: Set LLVM Prefix
+        run: |
+          HOST=$(rustc -vV | grep host | cut -d ' ' -f 2)
+          LLVM_PREFIX=$(rustc --print sysroot)/lib/rustlib/$HOST
+          echo "LLVM_SYS_211_PREFIX=$LLVM_PREFIX" >> $GITHUB_ENV
+          
+          # Fix for llvm-sys expecting libLLVM.dylib
+          LIB_DIR="$LLVM_PREFIX/lib"
+          if [ -d "$LIB_DIR" ]; then
+            cd "$LIB_DIR"
+            # Find the actual library (e.g., libLLVM-21-rust-....dylib)
+            ACTUAL_LIB=$(find . -name "libLLVM-*-rust-*.dylib" | head -n 1)
+            if [ -n "$ACTUAL_LIB" ] && [ ! -f "libLLVM.dylib" ]; then
+              echo "Creating symlink for libLLVM.dylib -> $ACTUAL_LIB"
+              ln -s "$ACTUAL_LIB" libLLVM.dylib
+            fi
+            cd -
+          fi
       
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
