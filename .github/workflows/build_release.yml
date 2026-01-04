@@ -179,7 +179,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifact\lib
           Copy-Item target\x86_64-pc-windows-gnu\release\infc.exe artifact\
           Copy-Item book\check_deps.ps1 artifact\
-          Copy-Item external\bin\* artifact\bin\ -Recurse
+          Copy-Item external\bin\windows\inf-llc.exe artifact\bin\
+          Copy-Item external\bin\windows\rust-lld.exe artifact\bin\
       - name: Prepare Artifact Package (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -191,31 +192,52 @@ jobs:
       - name: Package Artifact (Windows)
         if: runner.os == 'Windows'
         run: |
-          7z a -tzip infc-${{ matrix.os }}-64.zip .\artifact\*
-          certutil -hashfile infc-${{ matrix.os }}-64.zip SHA256 > infc-${{ matrix.os }}-64.zip.sha256
+          7z a -tzip infc-windows-x64.zip .\artifact\*
+          certutil -hashfile infc-windows-x64.zip SHA256 > infc-windows-x64.zip.sha256
       - name: Package Artifact (Linux)
         if: runner.os == 'Linux'
         run: |
-          tar -czf infc-${{ matrix.os }}-64.tar.gz -C artifact .
-          sha256sum infc-${{ matrix.os }}-64.tar.gz > infc-${{ matrix.os }}-64.tar.gz.sha256
+          tar -czf infc-linux-x64.tar.gz -C artifact .
+          sha256sum infc-linux-x64.tar.gz > infc-linux-x64.tar.gz.sha256
       - name: Prepare Artifact Package (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p artifact/bin
-          mkdir -p artifact/lib
           cp target/release/infc artifact/
           cp target/release/bin/* artifact/bin/ || true
-          # cp target/release/lib/* artifact/lib/ || true # No libs for macOS currently
+          if [ -d target/release/lib ] && [ "$(ls -A target/release/lib)" ]; then
+            mkdir -p artifact/lib
+            cp target/release/lib/* artifact/lib/
+          fi
       - name: Package Artifact (macOS)
         if: runner.os == 'macOS'
         run: |
-          tar -czf infc-${{ matrix.os }}-64.tar.gz -C artifact .
-          shasum -a 256 infc-${{ matrix.os }}-64.tar.gz > infc-${{ matrix.os }}-64.tar.gz.sha256
-      - name: Upload Artifact
+          tar -czf infc-macos-apple-silicon.tar.gz -C artifact .
+          shasum -a 256 infc-macos-apple-silicon.tar.gz > infc-macos-apple-silicon.tar.gz.sha256
+      - name: Upload Artifact (Windows)
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: infc-${{ matrix.os }}-64
+          name: infc-windows-x64
           path: |
-            infc-${{ matrix.os }}-64.*
+            infc-windows-x64.*
+          retention-days: 90
+          compression-level: 0
+      - name: Upload Artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: infc-linux-x64
+          path: |
+            infc-linux-x64.*
+          retention-days: 90
+          compression-level: 0
+      - name: Upload Artifact (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: infc-macos-apple-silicon
+          path: |
+            infc-macos-apple-silicon.*
           retention-days: 90
           compression-level: 0
