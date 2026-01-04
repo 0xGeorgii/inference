@@ -210,7 +210,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           tar -czf infc-${{ matrix.os }}-64.tar.gz -C artifact .
-          sha256sum infc-${{ matrix.os }}-64.tar.gz > infc-${{ matrix.os }}-64.tar.gz.sha256
+          shasum -a 256 infc-${{ matrix.os }}-64.tar.gz > infc-${{ matrix.os }}-64.tar.gz.sha256
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
