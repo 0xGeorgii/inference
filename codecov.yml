@@ -35,10 +35,6 @@ ignore:
   - "**/*.toml"
   - "**/*.json"
 
-# Specify paths to track
-fixes:
-  - "core/::"
-
 # Comment settings for pull requests
 comment:
   layout: "header, diff, flags, components, files, footer"
