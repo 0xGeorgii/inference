@@ -1,3 +1,8 @@
+[alias]
+build-full = "build --workspace"
+test-full = "test --workspace"
+check-full = "check --workspace"
+
 [env]
 PATH = { value = "external/bin", relative = true }
 

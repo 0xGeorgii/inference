@@ -8,6 +8,11 @@ members = [
     "tests"
 ]
 
+default-members = [
+    "core/*",
+    "tests"
+]
+
 [workspace.package]
 version = "0.0.1"
 rust-version = "1.91"
