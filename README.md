@@ -1,4 +1,4 @@
-[![Build](https://github.com/Inferara/inference/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/Inferara/inference/actions/workflows/build.yml)
+[![Build](https://github.com/Inferara/inference/actions/workflows/build_main.yml/badge.svg?branch=main)](https://github.com/Inferara/inference/actions/workflows/build_main.yml)
 [![codecov](https://codecov.io/gh/Inferara/inference/branch/main/graph/badge.svg)](https://codecov.io/gh/Inferara/inference)
 
 # 🌀 Inference Programming Language
