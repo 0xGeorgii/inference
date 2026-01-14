@@ -4,9 +4,6 @@ test-full = "test --workspace"
 check-full = "check --workspace"
 clippy-w = "clippy --verbose -- -D warnings"
 
-[env]
-PATH = { value = "external/bin", relative = true }
-
 [target.'cfg(target_os = "linux")']
 rustflags = ["-L", "native=external/lib/linux"]
 

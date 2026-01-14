@@ -79,6 +79,11 @@ Prebuilt `infc` binaries distributables are arranged in the following directory 
 
 To build Inference from source, you'll need the required binary dependencies for your platform.
 
+For detailed platform-specific setup instructions, see:
+- [Linux Development Setup](book/installation_linux.md)
+- [macOS Development Setup](book/installation_macos.md)
+- [Windows Development Setup](book/installation_windows.md)
+
 ### Required Binaries
 
 Download the following files for your platform and place them in the specified directories:
@@ -86,7 +91,7 @@ Download the following files for your platform and place them in the specified d
 #### Linux
 - **inf-llc**: [Download](https://storage.googleapis.com/external_binaries/linux/bin/inf-llc.zip) → Extract to `external/bin/linux/`
 - **rust-lld**: [Download](https://storage.googleapis.com/external_binaries/linux/bin/rust-lld.zip) → Extract to `external/bin/linux/`
-- **libLLVM**: [Download](https://storage.googleapis.com/external_binaries/linux/lib/libLLVM.so.21.1-rust-1.94.zip) → Extract to `external/lib/linux/`
+- **libLLVM**: [Download](https://storage.googleapis.com/external_binaries/linux/lib/libLLVM.so.21.1-rust-1.94.0-nightly.zip) → Extract to `external/lib/linux/`
 
 #### macOS
 - **inf-llc**: [Download](https://storage.googleapis.com/external_binaries/macos/bin/inf-llc.zip) → Extract to `external/bin/macos/`

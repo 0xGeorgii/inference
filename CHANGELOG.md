@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tooling
 
+- Remove `playground-server` tool (unused, superseded by external playground infrastructure) ([#56])
 - Reorganize project structure: move crates to `core/` and `tools/` directories ([#43])
 - Add `inf-wasmparser` crate (fork with non-det instruction support) ([#43])
 - Add `inf-wat` crate for WAT parsing ([#43])
@@ -68,6 +69,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Codecov integration for test coverage reporting ([#57], [#58])
 - Optimize local build time and refactor CI workflows ([#60])
 - Add Windows development setup with cross-platform LLVM binaries
+- Update libLLVM download URL to use consistent filename with `-nightly` suffix ([#56])
+- Remove unused PATH configuration from `.cargo/config.toml` ([#56])
+- Bump CI cache keys to invalidate stale binary caches ([#56])
+- Fix LLVM environment variable reference in Windows installation guide ([#56])
+- Add Linux development setup guide (`book/installation_linux.md`) ([#56])
+- Add macOS development setup guide (`book/installation_macos.md`) ([#56])
+- Add cross-platform dependency check script (`book/check_deps.sh`) ([#56])
 
 ### Performance
 
@@ -130,6 +138,7 @@ Initial tagged release.
 [#44]: https://github.com/Inferara/inference/pull/44
 [#54]: https://github.com/Inferara/inference/pull/54
 [#55]: https://github.com/Inferara/inference/pull/55
+[#56]: https://github.com/Inferara/inference/pull/56
 [#57]: https://github.com/Inferara/inference/pull/57
 [#58]: https://github.com/Inferara/inference/pull/58
 [#60]: https://github.com/Inferara/inference/pull/60
