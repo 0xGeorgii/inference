@@ -609,7 +609,7 @@ mod import_tests {
 
         #[test]
         fn test_private_enum_definition() {
-            let source = "enum Color { Red; Green; Blue; }\nfn test() -> i32 { return 42; }";
+            let source = "enum Color { Red, Green, Blue }\nfn test() -> i32 { return 42; }";
             let arena = build_ast(source.to_string());
             let result = TypeCheckerBuilder::build_typed_context(arena);
             assert!(result.is_ok(), "Private enum should be registerable");
@@ -954,7 +954,7 @@ mod generics_tests {
                         assert_eq!(ident.name(), "T", "Argument type should be T");
                     }
                     Type::Simple(simple) => {
-                        panic!("T was parsed as Simple({}) instead of Custom", simple.name);
+                        panic!("T was parsed as Simple({simple:?}) instead of Custom");
                     }
                     other => {
                         panic!("Unexpected type variant for T: {:?}", other);

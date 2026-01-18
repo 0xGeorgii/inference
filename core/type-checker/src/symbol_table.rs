@@ -12,6 +12,12 @@
 //!
 //! Scopes form a tree structure where each scope can have multiple child scopes.
 //! Symbol lookup walks up the tree from current scope to root until a match is found.
+//!
+//! ## Default Return Types
+//!
+//! Functions without an explicit return type default to the unit type. This is
+//! represented using `Type::Simple(SimpleTypeKind::Unit)`, which provides a
+//! lightweight value-based representation without heap allocation.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,7 +27,7 @@ use anyhow::bail;
 use crate::type_info::TypeInfo;
 use inference_ast::arena::Arena;
 use inference_ast::nodes::{
-    ArgumentType, Definition, Location, ModuleDefinition, SimpleType, Type, Visibility,
+    ArgumentType, Definition, Location, ModuleDefinition, SimpleTypeKind, Type, Visibility,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -897,13 +903,10 @@ impl SymbolTable {
                         ArgumentType::SelfReference(_) => None,
                     })
                     .collect();
-                let return_type = f.returns.clone().unwrap_or_else(|| {
-                    Type::Simple(Rc::new(SimpleType::new(
-                        0,
-                        Location::default(),
-                        "unit".into(),
-                    )))
-                });
+                let return_type = f
+                    .returns
+                    .clone()
+                    .unwrap_or(Type::Simple(SimpleTypeKind::Unit));
 
                 self.register_function_with_visibility(
                     &f.name(),
@@ -983,14 +986,9 @@ mod tests {
 
         #[test]
         fn register_type_creates_type_alias_with_provided_type() {
-            use inference_ast::nodes::{Location, SimpleType};
-            use std::rc::Rc;
+            use inference_ast::nodes::SimpleTypeKind;
             let mut table = SymbolTable::default();
-            let simple_type = Type::Simple(Rc::new(SimpleType::new(
-                0,
-                Location::default(),
-                "i32".into(),
-            )));
+            let simple_type = Type::Simple(SimpleTypeKind::I32);
             let result = table.register_type("MyInt", Some(&simple_type));
             assert!(result.is_ok());
             let lookup = table.lookup_type("MyInt");

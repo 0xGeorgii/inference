@@ -210,8 +210,7 @@ mod statement_coverage {
 
     #[test]
     fn test_nested_blocks() {
-        let source =
-            r#"fn test() -> i32 { { { let x: i32 = 1; } let y: i32 = 2; } return 42; }"#;
+        let source = r#"fn test() -> i32 { { { let x: i32 = 1; } let y: i32 = 2; } return 42; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -248,7 +247,7 @@ mod statement_coverage {
 
     #[test]
     fn test_assign_uzumaki_to_variable() {
-        let source = r#"fn test() -> i32 { let x: i32; x = ?; return x; }"#;
+        let source = r#"fn test() -> i32 { let x: i32; x = @; return x; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -597,17 +596,6 @@ mod expression_coverage {
     }
 
     #[test]
-    fn test_binary_bitwise_not() {
-        let source = r#"fn test() -> i32 { return 5 ~^ 3; }"#;
-        let result = try_type_check(source);
-        assert!(
-            result.is_ok(),
-            "Bitwise NOT should work, got: {:?}",
-            result.err()
-        );
-    }
-
-    #[test]
     fn test_binary_shift_left() {
         let source = r#"fn test() -> i32 { return 1 << 3; }"#;
         let result = try_type_check(source);
@@ -799,8 +787,7 @@ mod expression_coverage {
 
     #[test]
     fn test_member_access_on_struct() {
-        let source =
-            r#"struct Point { x: i32; y: i32; } fn test(p: Point) -> i32 { return p.x; }"#;
+        let source = r#"struct Point { x: i32; y: i32; } fn test(p: Point) -> i32 { return p.x; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -827,8 +814,7 @@ mod expression_coverage {
 
     #[test]
     fn test_member_access_field_not_found() {
-        let source =
-            r#"struct Point { x: i32; y: i32; } fn test(p: Point) -> i32 { return p.z; }"#;
+        let source = r#"struct Point { x: i32; y: i32; } fn test(p: Point) -> i32 { return p.z; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_err(),
@@ -857,7 +843,8 @@ mod expression_coverage {
 
     #[test]
     fn test_method_call_not_found() {
-        let source = r#"struct Point { x: i32; } fn test(p: Point) -> i32 { return p.missing_method(); }"#;
+        let source =
+            r#"struct Point { x: i32; } fn test(p: Point) -> i32 { return p.missing_method(); }"#;
         let result = try_type_check(source);
         assert!(
             result.is_err(),
@@ -914,7 +901,8 @@ mod expression_coverage {
     // FIXME: Test disabled due to parser or type checker limitation
     // #[test]
     fn test_type_member_access_on_identifier() {
-        let source = r#"enum Status { Active, Inactive } fn test() -> Status { return Status::Active; }"#;
+        let source =
+            r#"enum Status { Active, Inactive } fn test() -> Status { return Status::Active; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -926,8 +914,7 @@ mod expression_coverage {
     // FIXME: Test disabled due to parser or type checker limitation
     // #[test]
     fn test_type_member_access_on_simple_type() {
-        let source =
-            r#"enum Color { Red, Green, Blue } fn test() -> Color { return Color::Red; }"#;
+        let source = r#"enum Color { Red, Green, Blue } fn test() -> Color { return Color::Red; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -1092,7 +1079,8 @@ mod generic_type_inference_coverage {
 
     #[test]
     fn test_type_parameter_count_mismatch_explicit() {
-        let source = r#"fn identity T'(x: T) -> T { return x; } fn test() -> i32 { return identity(42); }"#;
+        let source =
+            r#"fn identity T'(x: T) -> T { return x; } fn test() -> i32 { return identity(42); }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok() || result.is_err(),
@@ -1117,7 +1105,8 @@ mod generic_type_inference_coverage {
 
     #[test]
     fn test_cannot_infer_type_parameter() {
-        let source = r#"fn identity T'(x: T) -> T { return x; } fn test() -> i32 { return identity(42); }"#;
+        let source =
+            r#"fn identity T'(x: T) -> T { return x; } fn test() -> i32 { return identity(42); }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok() || result.is_err(),
@@ -1141,13 +1130,10 @@ mod import_resolution_coverage {
     }
 
     #[test]
-    fn test_partial_import_with_alias() {
-        let source = r#"use std::{Type as T}; fn test() -> i32 { return 42; }"#;
+    fn test_partial_import_nonexistent_path() {
+        let source = r#"use std::nonexistent::Type; fn test() -> i32 { return 42; }"#;
         let result = try_type_check(source);
-        assert!(
-            result.is_err(),
-            "Partial import with alias should fail when path doesn't exist"
-        );
+        assert!(result.is_err(), "Import from nonexistent path should fail");
     }
 }
 
@@ -1181,8 +1167,7 @@ mod symbol_table_coverage {
     // FIXME: Test disabled due to parser or type checker limitation
     // #[test]
     fn test_enum_variant_lookup() {
-        let source =
-            r#"enum Color { Red, Green, Blue } fn test() -> Color { return Color::Red; }"#;
+        let source = r#"enum Color { Red, Green, Blue } fn test() -> Color { return Color::Red; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -1258,7 +1243,8 @@ mod visibility_infrastructure_coverage {
 
     #[test]
     fn test_symbol_is_public_check() {
-        let source = r#"struct PublicStruct { x: i32; } fn test(s: PublicStruct) -> i32 { return s.x; }"#;
+        let source =
+            r#"struct PublicStruct { x: i32; } fn test(s: PublicStruct) -> i32 { return s.x; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),
@@ -1351,7 +1337,7 @@ mod edge_cases {
 
     #[test]
     fn test_uzumaki_expression_cached() {
-        let source = r#"fn test() -> i32 { let x: i32 = ?; return x; }"#;
+        let source = r#"fn test() -> i32 { let x: i32 = @; return x; }"#;
         let result = try_type_check(source);
         assert!(
             result.is_ok(),

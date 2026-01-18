@@ -3,12 +3,19 @@
 //! This module defines the representation of types used throughout the type checker.
 //!
 //! The Inference language supports:
-//! - Primitive types: bool, string, unit, i8-i64, u8-u64
+//! - Primitive types: bool, unit, i8-i64, u8-u64
 //! - Compound types: arrays, structs, enums, functions
 //! - Generic types: type parameters that can be substituted
 //!
 //! Generic types use [`TypeInfoKind::Generic`] for unbound type parameters.
 //! The [`TypeInfo::substitute`] method replaces type parameters with concrete types.
+//!
+//! ## Type Conversion from AST
+//!
+//! Primitive builtin types in the AST use `Type::Simple(SimpleTypeKind)`, a
+//! lightweight enum without heap allocation. The `TypeInfo::new()` method converts
+//! these to `TypeInfoKind` variants through direct pattern matching for efficient
+//! type checking.
 
 use core::fmt;
 use std::{
@@ -16,7 +23,7 @@ use std::{
     panic,
 };
 
-use inference_ast::nodes::{Expression, Literal, Type};
+use inference_ast::nodes::{Expression, Literal, SimpleTypeKind, Type};
 use rustc_hash::FxHashMap;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
@@ -237,19 +244,10 @@ impl TypeInfo {
     #[must_use]
     pub fn new_with_type_params(ty: &Type, type_param_names: &[String]) -> Self {
         match ty {
-            Type::Simple(simple) => {
-                // Check if this is a declared type parameter
-                if type_param_names.contains(&simple.name) {
-                    return Self {
-                        kind: TypeInfoKind::Generic(simple.name.clone()),
-                        type_params: vec![],
-                    };
-                }
-                Self {
-                    kind: Self::type_kind_from_simple_type(&simple.name),
-                    type_params: vec![],
-                }
-            }
+            Type::Simple(simple) => Self {
+                kind: Self::type_kind_from_simple_type_kind(simple),
+                type_params: vec![],
+            },
             Type::Generic(generic) => Self {
                 kind: TypeInfoKind::Generic(generic.base.name.clone()),
                 type_params: generic.parameters.iter().map(|p| p.name.clone()).collect(),
@@ -413,9 +411,40 @@ impl TypeInfo {
         }
     }
 
+    /// Converts a string type name to TypeInfoKind.
+    ///
+    /// Used for `Type::Custom` variants that reference types by name.
+    /// Attempts to match against builtin type names, falling back to Custom.
     fn type_kind_from_simple_type(simple_type_name: &str) -> TypeInfoKind {
         TypeInfoKind::from_builtin_str(simple_type_name)
             .unwrap_or_else(|| TypeInfoKind::Custom(simple_type_name.to_string()))
+    }
+
+    /// Converts AST SimpleTypeKind to TypeInfoKind.
+    ///
+    /// This is the efficient path for primitive builtin types. The AST uses
+    /// `Type::Simple(SimpleTypeKind)` for primitives, which are lightweight
+    /// enum values without heap allocation. This method performs the direct
+    /// mapping to the type checker's internal TypeInfoKind representation.
+    ///
+    /// Handles all primitive types:
+    /// - Unit type (implicitly returned by functions without return type)
+    /// - Boolean type
+    /// - Signed integers: i8, i16, i32, i64
+    /// - Unsigned integers: u8, u16, u32, u64
+    fn type_kind_from_simple_type_kind(kind: &SimpleTypeKind) -> TypeInfoKind {
+        match kind {
+            SimpleTypeKind::Unit => TypeInfoKind::Unit,
+            SimpleTypeKind::Bool => TypeInfoKind::Bool,
+            SimpleTypeKind::I8 => TypeInfoKind::Number(NumberType::I8),
+            SimpleTypeKind::I16 => TypeInfoKind::Number(NumberType::I16),
+            SimpleTypeKind::I32 => TypeInfoKind::Number(NumberType::I32),
+            SimpleTypeKind::I64 => TypeInfoKind::Number(NumberType::I64),
+            SimpleTypeKind::U8 => TypeInfoKind::Number(NumberType::U8),
+            SimpleTypeKind::U16 => TypeInfoKind::Number(NumberType::U16),
+            SimpleTypeKind::U32 => TypeInfoKind::Number(NumberType::U32),
+            SimpleTypeKind::U64 => TypeInfoKind::Number(NumberType::U64),
+        }
     }
 }
 

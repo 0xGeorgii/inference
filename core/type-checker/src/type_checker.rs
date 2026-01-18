@@ -18,7 +18,7 @@ use anyhow::bail;
 use inference_ast::extern_prelude::ExternPrelude;
 use inference_ast::nodes::{
     ArgumentType, Definition, Directive, Expression, FunctionDefinition, Identifier, Literal,
-    Location, ModuleDefinition, OperatorKind, SimpleType, Statement, Type, UnaryOperatorKind,
+    Location, ModuleDefinition, OperatorKind, SimpleTypeKind, Statement, Type, UnaryOperatorKind,
     UseDirective, Visibility,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -357,11 +357,7 @@ impl TypeChecker {
                             &function_definition
                                 .returns
                                 .as_ref()
-                                .unwrap_or(&Type::Simple(Rc::new(SimpleType::new(
-                                    0,
-                                    Location::default(),
-                                    "Unit".into(),
-                                ))))
+                                .unwrap_or(&Type::Simple(SimpleTypeKind::Unit))
                                 .clone(),
                         ) {
                             self.errors.push(TypeCheckError::RegistrationFailed {
@@ -393,11 +389,7 @@ impl TypeChecker {
                             &external_function_definition
                                 .returns
                                 .as_ref()
-                                .unwrap_or(&Type::Simple(Rc::new(SimpleType::new(
-                                    0,
-                                    Location::default(),
-                                    "Unit".into(),
-                                ))))
+                                .unwrap_or(&Type::Simple(SimpleTypeKind::Unit))
                                 .clone(),
                         ) {
                             self.errors.push(TypeCheckError::RegistrationFailed {
@@ -418,6 +410,16 @@ impl TypeChecker {
         }
     }
 
+    /// Validates that a type reference is well-formed.
+    ///
+    /// Checks that:
+    /// - Custom types exist in the symbol table
+    /// - Generic type parameters are declared or known types
+    /// - Array element types are valid
+    ///
+    /// Primitive builtin types represented by `Type::Simple(SimpleTypeKind)` are
+    /// always valid and require no symbol table lookup. This includes unit, bool,
+    /// and numeric types (i8, i16, i32, i64, u8, u16, u32, u64).
     fn validate_type(&mut self, ty: &Type, type_parameters: Option<&Vec<Rc<Identifier>>>) {
         // Collect type parameter names for checking
         let type_param_names: Vec<String> = type_parameters
@@ -428,17 +430,9 @@ impl TypeChecker {
             Type::Array(type_array) => {
                 self.validate_type(&type_array.element_type, type_parameters)
             }
-            Type::Simple(simple_type) => {
-                // Type parameters (like T, U) are valid types within the function
-                if type_param_names.contains(&simple_type.name) {
-                    return;
-                }
-                if self.symbol_table.lookup_type(&simple_type.name).is_none() {
-                    self.push_error_dedup(TypeCheckError::UnknownType {
-                        name: simple_type.name.clone(),
-                        location: simple_type.location,
-                    });
-                }
+            Type::Simple(_) => {
+                // SimpleTypeKind only contains primitive builtin types - always valid.
+                // No symbol table lookup required for unit, bool, i8-i64, u8-u64.
             }
             Type::Generic(generic_type) => {
                 if self
@@ -901,10 +895,9 @@ impl TypeChecker {
                     Expression::Type(ty) => {
                         // Type enum does NOT have a .name() method - must match variants
                         match ty {
-                            Type::Simple(simple_type) => simple_type.name.clone(),
                             Type::Custom(ident) => ident.name.clone(),
                             _ => {
-                                // Array, Generic, Function, QualifiedName, Qualified are not valid for enum access
+                                // Simple, Array, Generic, Function, QualifiedName, Qualified are not valid for enum access
                                 self.errors.push(TypeCheckError::ExpectedEnumType {
                                     found: TypeInfo::new(ty),
                                     location: type_member_access_expression.location,
@@ -984,8 +977,13 @@ impl TypeChecker {
                     // Extract type name from the expression
                     let type_name = match &*inner_expr {
                         Expression::Type(ty) => match ty {
-                            Type::Simple(simple_type) => Some(simple_type.name.clone()),
                             Type::Custom(ident) => Some(ident.name.clone()),
+                            Type::QualifiedName(qn) => {
+                                Some(format!("{}::{}", qn.qualifier.name, qn.name.name))
+                            }
+                            Type::Qualified(tqn) => {
+                                Some(format!("{}::{}", tqn.alias.name, tqn.name.name))
+                            }
                             _ => None,
                         },
                         Expression::Identifier(id) => Some(id.name.clone()),
@@ -1546,10 +1544,10 @@ impl TypeChecker {
     #[allow(dead_code)]
     fn types_equal(left: &Type, right: &Type) -> bool {
         match (left, right) {
+            (Type::Simple(left), Type::Simple(right)) => left == right,
             (Type::Array(left), Type::Array(right)) => {
                 Self::types_equal(&left.element_type, &right.element_type)
             }
-            (Type::Simple(left), Type::Simple(right)) => left.name == right.name,
             (Type::Generic(left), Type::Generic(right)) => {
                 left.base.name() == right.base.name() && left.parameters == right.parameters
             }
@@ -1725,11 +1723,7 @@ impl TypeChecker {
                             &external_function_definition
                                 .returns
                                 .as_ref()
-                                .unwrap_or(&Type::Simple(Rc::new(SimpleType::new(
-                                    0,
-                                    Location::default(),
-                                    "Unit".into(),
-                                ))))
+                                .unwrap_or(&Type::Simple(SimpleTypeKind::Unit))
                                 .clone(),
                         ) {
                             self.errors.push(TypeCheckError::RegistrationFailed {

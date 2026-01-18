@@ -1,5 +1,64 @@
+//! AST builder that converts tree-sitter concrete syntax trees (CST) into typed AST nodes.
+//!
+//! The `Builder` processes tree-sitter parse trees and constructs a typed Abstract Syntax Tree
+//! stored in an `Arena`. It handles:
+//!
+//! - Converting CST nodes to typed AST nodes
+//! - Assigning unique sequential IDs to each node
+//! - Recording parent-child relationships in the arena
+//! - Collecting parse errors from malformed syntax
+//! - Extracting source location information
+//!
+//! # Example
+//!
+//! ```no_run
+//! use inference_ast::builder::Builder;
+//! use tree_sitter::Parser;
+//!
+//! let source = r#"fn add(a: i32, b: i32) -> i32 { return a + b; }"#;
+//! let mut parser = Parser::new();
+//! parser.set_language(&tree_sitter_inference::language()).unwrap();
+//! let tree = parser.parse(source, None).unwrap();
+//!
+//! let mut builder = Builder::new();
+//! builder.add_source_code(tree.root_node(), source.as_bytes());
+//! let arena = builder.build_ast().unwrap();
+//! ```
+//!
+//! # Error Handling
+//!
+//! The builder collects errors during construction by checking for tree-sitter ERROR nodes.
+//! If any errors are found, `build_ast()` prints them to stderr and returns an error:
+//!
+//! ```text
+//! AST Builder Error: Syntax error at line 5
+//! AST Builder Error: Unexpected token at line 10
+//! Error: AST building failed due to errors
+//! ```
+//!
+//! # Node ID Assignment
+//!
+//! Node IDs are assigned sequentially starting from 1 using an atomic counter:
+//!
+//! - **Deterministic ordering**: IDs match parse order for easier debugging
+//! - **Thread-safe**: Uses `AtomicU32` with relaxed ordering
+//! - **Zero is reserved**: ID 0 represents invalid/uninitialized nodes
+//! - **Sentinel value**: `u32::MAX` represents "no ID" for non-node types
+//!
+//! # Implementation Details
+//!
+//! The builder walks the tree-sitter CST depth-first, creating typed AST nodes:
+//!
+//! 1. For each CST node, determine its kind (e.g., `function_definition`)
+//! 2. Extract relevant child nodes by field name (e.g., "name", "body")
+//! 3. Recursively build child AST nodes
+//! 4. Create the parent AST node with references to children
+//! 5. Add to arena with parent-child relationship
+//!
+//! The builder also calls `collect_errors()` for each processed node to identify
+//! tree-sitter ERROR nodes from parse failures.
+
 use std::{
-    marker::PhantomData,
     rc::Rc,
     sync::atomic::{AtomicU32, Ordering},
 };
@@ -17,7 +76,7 @@ use crate::{
         FunctionCallExpression, FunctionDefinition, FunctionType, GenericType, Identifier,
         IfStatement, Literal, Location, LoopStatement, MemberAccessExpression, NumberLiteral,
         OperatorKind, ParenthesizedExpression, PrefixUnaryExpression, QualifiedName,
-        ReturnStatement, SimpleType, SourceFile, SpecDefinition, Statement, StringLiteral,
+        ReturnStatement, SimpleTypeKind, SourceFile, SpecDefinition, Statement, StringLiteral,
         StructDefinition, StructField, Type, TypeArray, TypeDefinition, TypeDefinitionStatement,
         TypeQualifiedName, UnaryOperatorKind, UnitLiteral, UseDirective, UzumakiExpression,
         VariableDefinitionStatement,
@@ -25,38 +84,25 @@ use crate::{
 };
 use tree_sitter::Node;
 
-#[allow(dead_code)]
-trait BuilderInit {}
-#[allow(dead_code)]
-trait BuilderComplete {}
-
-pub struct InitState;
-impl BuilderInit for InitState {}
-pub struct CompleteState;
-impl BuilderComplete for CompleteState {}
-
-pub type CompletedBuilder<'a> = Builder<'a, CompleteState>;
-
-#[allow(dead_code)]
-pub struct Builder<'a, S> {
+pub struct Builder<'a> {
     arena: Arena,
     source_code: Vec<(Node<'a>, &'a [u8])>,
-    _state: PhantomData<S>,
+    errors: Vec<anyhow::Error>,
 }
 
-impl Default for Builder<'_, InitState> {
+impl Default for Builder<'_> {
     fn default() -> Self {
         Builder::new()
     }
 }
 
-impl<'a> Builder<'a, InitState> {
+impl<'a> Builder<'a> {
     #[must_use]
     pub fn new() -> Self {
         Self {
             arena: Arena::default(),
             source_code: Vec::new(),
-            _state: PhantomData,
+            errors: Vec::new(),
         }
     }
 
@@ -83,7 +129,7 @@ impl<'a> Builder<'a, InitState> {
     ///
     /// This function will return an error if the `source_file` is malformed and a valid AST cannot be constructed.
     #[allow(clippy::single_match_else)]
-    pub fn build_ast(&'_ mut self) -> anyhow::Result<Builder<'_, CompleteState>> {
+    pub fn build_ast(&'_ mut self) -> anyhow::Result<Arena> {
         for (root, code) in &self.source_code.clone() {
             let id = Self::get_node_id();
             let location = Self::get_location(root, code);
@@ -113,12 +159,14 @@ impl<'a> Builder<'a, InitState> {
             }
             self.arena
                 .add_node(AstNode::Ast(Ast::SourceFile(Rc::new(ast))), u32::MAX);
+            if !self.errors.is_empty() {
+                for err in &self.errors {
+                    eprintln!("AST Builder Error: {err}");
+                }
+                return Err(anyhow::anyhow!("AST building failed due to errors"));
+            }
         }
-        Ok(Builder {
-            arena: self.arena.clone(),
-            source_code: Vec::new(),
-            _state: PhantomData,
-        })
+        Ok(self.arena.clone())
     }
 
     fn build_use_directive(
@@ -127,6 +175,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<UseDirective> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let mut segments = None;
@@ -177,6 +226,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<SpecDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name = self.build_identifier(id, &node.child_by_field_name("name").unwrap(), code);
@@ -209,6 +259,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<EnumDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name = self.build_identifier(id, &node.child_by_field_name("name").unwrap(), code);
@@ -276,6 +327,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<StructDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name = self.build_identifier(id, &node.child_by_field_name("name").unwrap(), code);
@@ -311,6 +363,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_struct_field(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<StructField> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let ty = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -328,6 +381,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<ConstantDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let ty = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -355,6 +409,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<FunctionDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let mut arguments = None;
@@ -412,6 +467,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<ExternalFunctionDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name = self.build_identifier(id, &node.child_by_field_name("name").unwrap(), code);
@@ -453,6 +509,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<TypeDefinition> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let ty = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -471,8 +528,20 @@ impl<'a> Builder<'a, InitState> {
         node
     }
 
-    /// Build a module definition node
-    /// TODO: Implement module parsing when tree-sitter grammar supports it
+    /// Builds a module definition node.
+    ///
+    /// # Not Yet Implemented
+    ///
+    /// Module parsing requires tree-sitter grammar support for module declarations.
+    /// The Inference grammar does not currently support `mod name;` or `mod name { ... }`
+    /// syntax. When grammar support is added, this function will:
+    ///
+    /// 1. Parse the module name from the CST node
+    /// 2. Determine if it's an external (`mod name;`) or inline (`mod name { ... }`) module
+    /// 3. Build the `ModuleDefinition` AST node
+    /// 4. Add it to the arena
+    ///
+    /// See `ParserContext::process_module()` for the planned integration point.
     #[allow(dead_code)]
     fn build_module_definition(
         &mut self,
@@ -480,11 +549,11 @@ impl<'a> Builder<'a, InitState> {
         _node: &Node,
         _code: &[u8],
     ) -> Rc<ModuleDefinition> {
-        // TODO: Implement me - currently tree-sitter grammar doesn't support modules
         unimplemented!("Module definitions are not yet supported in the grammar")
     }
 
     fn build_argument_type(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> ArgumentType {
+        self.collect_errors(node, code);
         match node.kind() {
             "argument_declaration" => {
                 let argument = self.build_argument(parent_id, node, code);
@@ -503,6 +572,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_argument(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<Argument> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name_node = node.child_by_field_name("name").unwrap();
@@ -526,6 +596,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<SelfReference> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let is_mut = node
@@ -545,6 +616,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<IgnoreArgument> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let ty = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -557,6 +629,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_block(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> BlockType {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         match node.kind() {
@@ -637,8 +710,13 @@ impl<'a> Builder<'a, InitState> {
     ) -> Vec<Statement> {
         let mut statements = Vec::new();
         let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            statements.push(self.build_statement(parent_id, &child, code));
+
+        for child in node.children(&mut cursor) {
+            self.collect_errors(&child, code);
+
+            if child.is_named() {
+                statements.push(self.build_statement(parent_id, &child, code));
+            }
         }
         statements
     }
@@ -689,6 +767,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<ReturnStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let expr_node = &node.child_by_field_name("expression");
@@ -714,6 +793,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<LoopStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let condition = node
@@ -728,6 +808,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_if_statement(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<IfStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let condition_node = node.child_by_field_name("condition").unwrap();
@@ -749,6 +830,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<VariableDefinitionStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let ty = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -774,6 +856,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<TypeDefinitionStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let ty = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -836,6 +919,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<AssignStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let left = self.build_expression(id, &node.child_by_field_name("left").unwrap(), code);
@@ -855,6 +939,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<ArrayIndexAccessExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let array = self.build_expression(id, &node.named_child(0).unwrap(), code);
@@ -874,6 +959,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<MemberAccessExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let expression =
@@ -893,6 +979,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<TypeMemberAccessExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let expression =
@@ -914,6 +1001,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<FunctionCallExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let function =
@@ -985,6 +1073,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<StructExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name = self.build_identifier(id, &node.child_by_field_name("name").unwrap(), code);
@@ -1038,6 +1127,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<PrefixUnaryExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let expression = self.build_expression(id, &node.child(1).unwrap(), code);
@@ -1066,6 +1156,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<AssertStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let expression = self.build_expression(id, &node.child(1).unwrap(), code);
@@ -1083,6 +1174,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<BreakStatement> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let node = Rc::new(BreakStatement::new(id, location));
@@ -1099,6 +1191,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<ParenthesizedExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let expression = self.build_expression(id, &node.child(1).unwrap(), code);
@@ -1117,6 +1210,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<BinaryExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let left = self.build_expression(id, &node.child_by_field_name("left").unwrap(), code);
@@ -1172,6 +1266,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<ArrayLiteral> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let mut elements = Vec::new();
@@ -1194,6 +1289,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_bool_literal(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<BoolLiteral> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let value = match node.utf8_text(code).unwrap() {
@@ -1216,6 +1312,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<StringLiteral> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let value = node.utf8_text(code).unwrap().to_string();
@@ -1233,6 +1330,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<NumberLiteral> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let value = node.utf8_text(code).unwrap().to_string();
@@ -1245,6 +1343,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_unit_literal(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<UnitLiteral> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let node = Rc::new(UnitLiteral::new(id, location));
@@ -1258,11 +1357,17 @@ impl<'a> Builder<'a, InitState> {
     fn build_type(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Type {
         let node_kind = node.kind();
         match node_kind {
+            "type_unit" => Type::Simple(SimpleTypeKind::Unit),
+            "type_bool" => Type::Simple(SimpleTypeKind::Bool),
+            "type_i8" => Type::Simple(SimpleTypeKind::I8),
+            "type_i16" => Type::Simple(SimpleTypeKind::I16),
+            "type_i32" => Type::Simple(SimpleTypeKind::I32),
+            "type_i64" => Type::Simple(SimpleTypeKind::I64),
+            "type_u8" => Type::Simple(SimpleTypeKind::U8),
+            "type_u16" => Type::Simple(SimpleTypeKind::U16),
+            "type_u32" => Type::Simple(SimpleTypeKind::U32),
+            "type_u64" => Type::Simple(SimpleTypeKind::U64),
             "type_array" => Type::Array(self.build_type_array(parent_id, node, code)),
-            "type_i8" | "type_i16" | "type_i32" | "type_i64" | "type_u8" | "type_u16"
-            | "type_u32" | "type_u64" | "type_bool" | "type_unit" => {
-                Type::Simple(self.build_simple_type(parent_id, node, code))
-            }
             "generic_type" | "generic_name" => {
                 Type::Generic(self.build_generic_type(parent_id, node, code))
             }
@@ -1285,6 +1390,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_type_array(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<TypeArray> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let element_type = self.build_type(id, &node.child_by_field_name("type").unwrap(), code);
@@ -1299,23 +1405,8 @@ impl<'a> Builder<'a, InitState> {
         node
     }
 
-    fn build_simple_type(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<SimpleType> {
-        let id = Self::get_node_id();
-        let location = Self::get_location(node, code);
-        let name = if node.kind() == "type_unit" {
-            String::from("unit")
-        } else {
-            node.utf8_text(code).unwrap().to_string()
-        };
-        let node = Rc::new(SimpleType::new(id, location, name));
-        self.arena.add_node(
-            AstNode::Expression(Expression::Type(Type::Simple(node.clone()))),
-            parent_id,
-        );
-        node
-    }
-
     fn build_generic_type(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<GenericType> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let base = self.build_identifier(id, &node.child_by_field_name("base_type").unwrap(), code);
@@ -1343,6 +1434,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<FunctionType> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let mut arguments = None;
@@ -1373,6 +1465,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<TypeQualifiedName> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let alias = self.build_identifier(id, &node.child_by_field_name("alias").unwrap(), code);
@@ -1392,6 +1485,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<QualifiedName> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let qualifier =
@@ -1412,6 +1506,7 @@ impl<'a> Builder<'a, InitState> {
         node: &Node,
         code: &[u8],
     ) -> Rc<UzumakiExpression> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let node = Rc::new(UzumakiExpression::new(id, location));
@@ -1423,6 +1518,7 @@ impl<'a> Builder<'a, InitState> {
     }
 
     fn build_identifier(&mut self, parent_id: u32, node: &Node, code: &[u8]) -> Rc<Identifier> {
+        self.collect_errors(node, code);
         let id = Self::get_node_id();
         let location = Self::get_location(node, code);
         let name = node.utf8_text(code).unwrap().to_string();
@@ -1464,6 +1560,24 @@ impl<'a> Builder<'a, InitState> {
         }
     }
 
+    fn collect_errors(&mut self, node: &Node, code: &[u8]) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.is_error() {
+                let location = Self::get_location(&child, code);
+                let source_snippet = String::from_utf8_lossy(
+                    &code[location.offset_start as usize..location.offset_end as usize],
+                );
+                self.errors.push(anyhow::anyhow!(
+                    "Parse error: invalid syntax at line {}:{} near '{}'",
+                    location.start_line,
+                    location.start_column,
+                    source_snippet.chars().take(30).collect::<String>()
+                ));
+            }
+        }
+    }
+
     /// Extracts visibility modifier from a definition CST node.
     /// Returns `Visibility::Public` if a "visibility" child field is present,
     /// otherwise returns `Visibility::Private` (the default).
@@ -1471,17 +1585,5 @@ impl<'a> Builder<'a, InitState> {
         node.child_by_field_name("visibility")
             .map(|_| Visibility::Public)
             .unwrap_or_default()
-    }
-}
-
-impl Builder<'_, CompleteState> {
-    /// Returns AST arena
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if resulted `Arena` is `None` which means an error occured during the parsing process.
-    #[must_use]
-    pub fn arena(self) -> Arena {
-        self.arena.clone()
     }
 }
