@@ -25,7 +25,7 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &ToolchainsSt
     .split(area);
 
     render_toolchain_list(frame, chunks[0], theme, state);
-    render_help(frame, chunks[1], theme);
+    render_help(frame, chunks[1], theme, state.toolchains.is_empty());
 }
 
 /// Renders the toolchain list.
@@ -39,10 +39,27 @@ fn render_toolchain_list(frame: &mut Frame, area: Rect, theme: &Theme, state: &T
             Style::default().fg(theme.muted),
         )]));
         lines.push(Line::from(""));
-        lines.push(Line::from(vec![Span::styled(
-            "  Run 'infs install' to install the Inference toolchain.",
-            Style::default().fg(theme.muted),
-        )]));
+        // Show selectable "Install" option
+        lines.push(Line::from(vec![
+            Span::styled(
+                "> ",
+                Style::default()
+                    .fg(theme.selected)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[i] ",
+                Style::default()
+                    .fg(theme.highlight)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Install latest toolchain",
+                Style::default()
+                    .fg(theme.text)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
     } else {
         for (idx, toolchain) in state.toolchains.iter().enumerate() {
             let is_selected = idx == state.selected;
@@ -88,14 +105,27 @@ fn render_toolchain_list(frame: &mut Frame, area: Rect, theme: &Theme, state: &T
 }
 
 /// Renders the help text at the bottom.
-fn render_help(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let help_text = Line::from(vec![
-        Span::styled("[Esc] ", Style::default().fg(theme.highlight)),
-        Span::styled("Back", Style::default().fg(theme.muted)),
-        Span::raw("  "),
-        Span::styled("[Up/Down] ", Style::default().fg(theme.highlight)),
-        Span::styled("Navigate", Style::default().fg(theme.muted)),
-    ]);
+fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, is_empty: bool) {
+    let help_text = if is_empty {
+        Line::from(vec![
+            Span::styled("[Esc] ", Style::default().fg(theme.highlight)),
+            Span::styled("Back", Style::default().fg(theme.muted)),
+            Span::raw("  "),
+            Span::styled("[i/Enter] ", Style::default().fg(theme.highlight)),
+            Span::styled("Install", Style::default().fg(theme.muted)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("[Esc] ", Style::default().fg(theme.highlight)),
+            Span::styled("Back", Style::default().fg(theme.muted)),
+            Span::raw("  "),
+            Span::styled("[Up/Down] ", Style::default().fg(theme.highlight)),
+            Span::styled("Navigate", Style::default().fg(theme.muted)),
+            Span::raw("  "),
+            Span::styled("[Enter] ", Style::default().fg(theme.highlight)),
+            Span::styled("Set default", Style::default().fg(theme.muted)),
+        ])
+    };
 
     let help = Paragraph::new(help_text).block(
         Block::default()

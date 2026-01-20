@@ -28,6 +28,7 @@
 //! - [`widgets`] - Reusable widget components
 
 pub mod app;
+pub mod install_task;
 pub mod menu;
 pub mod state;
 pub mod terminal;

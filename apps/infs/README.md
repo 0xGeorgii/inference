@@ -2,35 +2,71 @@
 
 Unified command-line interface for the Inference compiler toolchain.
 
-## Status
+## Features
 
-Phase 1 implemented. The `build` and `version` commands are functional.
+- **Compilation**: Build, run, and verify Inference source files
+- **Project Management**: Create and initialize projects with templates
+- **Toolchain Management**: Install, uninstall, and switch between toolchain versions
+- **Interactive TUI**: Terminal user interface for visual project management
+- **Doctor**: Diagnose installation and environment issues
 
-## Implemented Features
+## Installation
 
-- `infs build [file.inf]` - Compile Inference source files
-- `infs version` - Display version information
-- `infs --help` - Show available commands
+```bash
+cargo install --path apps/infs
+```
 
-## Planned Features (Future Phases)
+Or build from source:
 
-- `infs install [version]` - Download and install toolchain versions
-- `infs uninstall [version]` - Remove toolchain versions
-- `infs list` - List installed toolchain versions
-- `infs default <version>` - Set default toolchain version
-- `infs doctor` - Verify installation health
-- `infs new <project>` - Scaffold new projects
-- `infs init` - Initialize project in existing directory
-- `infs` (no args) - Launch TUI interface
-- `infs self update` - Update infs itself
+```bash
+cargo build -p infs --release
+```
 
-## Usage
+## Commands
+
+### Compilation
+
+| Command | Description |
+|---------|-------------|
+| `infs build <file>` | Compile Inference source files to WASM |
+| `infs run <file>` | Build and execute with wasmtime |
+| `infs verify <file>` | Compile, translate to Rocq, and verify proofs |
+
+### Project Management
+
+| Command | Description |
+|---------|-------------|
+| `infs new <name>` | Create a new project in a new directory |
+| `infs init` | Initialize a project in current directory |
+
+### Toolchain Management
+
+| Command | Description |
+|---------|-------------|
+| `infs install [version]` | Install a toolchain version (latest if omitted) |
+| `infs uninstall <version>` | Remove an installed toolchain |
+| `infs list` | List installed toolchains |
+| `infs default <version>` | Set the default toolchain |
+| `infs doctor` | Check installation health |
+| `infs self update` | Update infs itself |
+
+### Other
+
+| Command | Description |
+|---------|-------------|
+| `infs version` | Display version information |
+| `infs` (no args) | Launch interactive TUI |
+
+## Usage Examples
 
 ### Build Command
 
 ```bash
-# Parse only
+# Parse only (syntax check)
 infs build example.inf --parse
+
+# Type checking
+infs build example.inf --analyze
 
 # Full compilation with WASM output
 infs build example.inf --codegen -o
@@ -51,35 +87,147 @@ infs build example.inf --codegen -o -v
 
 At least one of `--parse`, `--analyze`, or `--codegen` must be specified.
 
-### Headless Mode
+### Run Command
 
 ```bash
-# For CI/scripting environments
+# Build and execute
+infs run example.inf
+
+# Pass arguments to the program
+infs run example.inf -- arg1 arg2
+```
+
+Requires `wasmtime` to be installed.
+
+### Verify Command
+
+```bash
+# Compile and verify with Rocq
+infs verify example.inf
+
+# Use custom output directory
+infs verify example.inf --output-dir ./proofs
+
+# Skip compilation (use existing WASM)
+infs verify example.wasm --skip-compile
+```
+
+Requires `coqc` (Rocq/Coq compiler) to be installed.
+
+### Project Commands
+
+```bash
+# Create a new project with standard template
+infs new myproject
+
+# Create with library template
+infs new mylib --template lib
+
+# Initialize in current directory
+infs init
+```
+
+### Toolchain Commands
+
+```bash
+# Install latest toolchain
+infs install
+
+# Install specific version
+infs install 0.1.0
+
+# List installed versions
+infs list
+
+# Set default version
+infs default 0.1.0
+
+# Check installation health
+infs doctor
+```
+
+## Interactive TUI
+
+When run without arguments in an interactive terminal, `infs` launches a TUI:
+
+```bash
+infs
+```
+
+The TUI provides:
+- Command menu with keyboard navigation
+- Toolchain status and management
+- Project overview
+- Build/run/verify integration
+
+### TUI Controls
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` or `j`/`k` | Navigate menu |
+| `Enter` | Select command |
+| `q` or `Esc` | Quit |
+
+### Headless Mode
+
+The TUI is automatically disabled in non-interactive environments:
+- When `CI=true` or `CI=1` environment variable is set
+- When `NO_COLOR` environment variable is set
+- When stdout is not a terminal
+
+Force headless mode explicitly:
+
+```bash
 infs --headless
 ```
 
-When `--headless` is specified or `CI=true` environment variable is detected, TUI mode is disabled.
-
 ## Architecture
 
-This crate is a thin binary wrapper that orchestrates:
-- `core/inference` - Compilation pipeline (parse, type_check, analyze, codegen, wasm_to_v)
+This crate is the unified CLI that orchestrates:
 
-## Building
+- **`core/inference`** - Compilation pipeline (parse, type_check, analyze, codegen, wasm_to_v)
+- **Toolchain management** - Version installation and switching
+- **Project scaffolding** - Templates and project structure
+
+### External Dependencies
+
+Some commands require external tools:
+
+| Command | Requires |
+|---------|----------|
+| `infs run` | wasmtime |
+| `infs verify` | coqc (Rocq/Coq) |
+
+Run `infs doctor` to check if all dependencies are available.
+
+## Development
+
+### Building
 
 ```bash
 cargo build -p infs
 ```
 
-## Testing
+### Testing
 
 ```bash
 cargo test -p infs
 ```
 
-11 integration tests verify:
-- Error handling (missing file, no phase selected)
+282 tests cover:
+- Command argument parsing
 - Build phases (parse, analyze, codegen)
 - Output generation (WASM, Rocq)
-- Version and help commands
+- Project scaffolding and templates
+- Toolchain management operations
+- TUI navigation and command execution
+- Error handling and edge cases
 - Byte-identical output compared to legacy `infc`
+
+### Integration Tests
+
+Some integration tests are conditional:
+- `run_full_workflow_with_wasmtime` - requires wasmtime
+- `verify_full_workflow_with_coqc` - requires coqc
+
+These tests skip gracefully when external tools are unavailable.

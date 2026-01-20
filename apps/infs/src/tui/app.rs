@@ -24,14 +24,19 @@
 //! - Cursor movement with Left/Right arrows
 //! - Toolchain operations (Enter to set as default)
 
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 
+use super::install_task;
 use super::menu::Menu;
-use super::state::{DoctorState, ProgressState, Screen, ToolchainInfo, ToolchainsState};
+use super::state::{
+    DoctorState, InstallProgress, ProgressItem, ProgressState, Screen, ToolchainInfo,
+    ToolchainsState,
+};
 use super::terminal::TerminalGuard;
 use super::theme::Theme;
 use super::views::{doctor_view, main_view, progress_view, toolchain_view};
@@ -97,6 +102,10 @@ pub struct App {
     pending_command: Option<String>,
     /// Override for executable path (used in tests).
     exe_path_override: Option<std::path::PathBuf>,
+    /// Receiver for installation progress messages from background task.
+    install_receiver: Option<Receiver<InstallProgress>>,
+    /// Screen to return to after progress view is dismissed.
+    previous_screen: Option<Screen>,
 }
 
 impl Default for App {
@@ -116,6 +125,8 @@ impl Default for App {
             command_history: CommandHistory::new(),
             pending_command: None,
             exe_path_override: None,
+            install_receiver: None,
+            previous_screen: None,
         }
     }
 }
@@ -208,8 +219,14 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.toolchains_state.select_next();
             }
-            KeyCode::Enter => {
-                self.set_selected_toolchain_as_default();
+            KeyCode::Enter | KeyCode::Char('i') => {
+                if self.toolchains_state.toolchains.is_empty() {
+                    // No toolchains installed - start installation in TUI
+                    self.start_installation(None);
+                } else if code == KeyCode::Enter {
+                    // Toolchains exist - set selected as default
+                    self.set_selected_toolchain_as_default();
+                }
             }
             _ => {}
         }
@@ -273,10 +290,36 @@ impl App {
 
     /// Handles key events on the progress screen.
     fn handle_progress_key(&mut self, code: KeyCode) {
-        if code == KeyCode::Esc && self.progress_state.completed {
-            self.screen = Screen::Main;
-            self.status_message = String::from("Press ':' to enter a command, 'q' to quit");
+        if code == KeyCode::Esc {
+            if self.progress_state.completed {
+                // Installation completed or failed - return to previous screen
+                self.return_from_progress();
+            } else {
+                // Installation in progress - cancel it
+                self.cancel_installation();
+            }
         }
+    }
+
+    /// Returns from progress screen to the previous screen.
+    fn return_from_progress(&mut self) {
+        // Reload toolchain data if we came from toolchains screen
+        if self.previous_screen == Some(Screen::Toolchains) {
+            self.toolchains_state.loaded = false;
+        }
+
+        let return_screen = self.previous_screen.unwrap_or(Screen::Main);
+        self.previous_screen = None;
+        self.install_receiver = None;
+        self.navigate_to(return_screen);
+    }
+
+    /// Cancels an in-progress installation.
+    fn cancel_installation(&mut self) {
+        // Drop the receiver to signal cancellation (sender will fail)
+        self.install_receiver = None;
+        self.progress_state.set_error("Installation cancelled");
+        self.status_message = String::from("Installation cancelled. Press Esc to return.");
     }
 
     /// Activates the currently selected menu item.
@@ -635,6 +678,109 @@ impl App {
         self.doctor_state.selected = 0;
         self.doctor_state.loaded = true;
     }
+
+    /// Starts a background installation task.
+    ///
+    /// Creates a channel for progress messages, sets up the progress state,
+    /// spawns a thread with a tokio runtime to run the installation, and
+    /// navigates to the progress screen.
+    ///
+    /// # Arguments
+    ///
+    /// * `version` - Optional version to install. If `None`, installs the latest version.
+    fn start_installation(&mut self, version: Option<String>) {
+        use std::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel();
+        self.install_receiver = Some(rx);
+
+        // Set up progress state
+        self.progress_state = ProgressState::new("Installing Toolchain");
+        self.progress_state.set_status("Starting installation...");
+
+        // Add a progress item that will be updated with current phase
+        let progress_item = ProgressItem::new("Initializing...");
+        self.progress_state.add_item(progress_item);
+
+        // Remember current screen to return to
+        self.previous_screen = Some(self.screen);
+
+        // Spawn installation task on a separate thread with its own tokio runtime
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            rt.block_on(install_task::run_installation(version, tx));
+        });
+
+        // Navigate to progress screen
+        self.screen = Screen::Progress;
+        self.status_message = String::from("Installing... Press Esc to cancel.");
+    }
+
+    /// Polls the installation progress channel and updates the progress state.
+    ///
+    /// This method should be called in each iteration of the TUI event loop.
+    /// It performs a non-blocking receive on the channel and processes any
+    /// available progress messages.
+    fn poll_install_progress(&mut self) {
+        let Some(receiver) = self.install_receiver.as_ref() else {
+            return;
+        };
+
+        // Collect all available messages first to avoid borrow issues
+        let mut messages = Vec::new();
+        while let Ok(msg) = receiver.try_recv() {
+            messages.push(msg);
+        }
+
+        // Process collected messages
+        let mut clear_receiver = false;
+        for msg in messages {
+            match msg {
+                InstallProgress::PhaseStarted { phase } => {
+                    self.progress_state.set_status(format!("{phase}..."));
+                    // Update progress item description to show current phase
+                    if let Some(item) = self.progress_state.items.first_mut() {
+                        item.description = phase;
+                    }
+                }
+                InstallProgress::DownloadStarted { total } => {
+                    if let Some(item) = self.progress_state.items.first_mut() {
+                        item.total = total;
+                        item.start();
+                    }
+                }
+                InstallProgress::DownloadProgress { downloaded, speed } => {
+                    if let Some(item) = self.progress_state.items.first_mut() {
+                        item.update_with_speed(downloaded, speed);
+                    }
+                }
+                InstallProgress::PhaseCompleted { phase } => {
+                    self.progress_state.set_status(format!("{phase} - done"));
+                }
+                InstallProgress::Completed { version } => {
+                    self.progress_state.complete();
+                    self.progress_state
+                        .set_status(format!("Toolchain v{version} installed successfully"));
+                    if let Some(item) = self.progress_state.items.first_mut() {
+                        item.description = format!("Installed v{version}");
+                        item.complete();
+                    }
+                    self.status_message =
+                        String::from("Installation complete! Press Esc to return.");
+                    clear_receiver = true;
+                }
+                InstallProgress::Failed { error } => {
+                    self.progress_state.set_error(&error);
+                    self.status_message = String::from("Installation failed. Press Esc to return.");
+                    clear_receiver = true;
+                }
+            }
+        }
+
+        if clear_receiver {
+            self.install_receiver = None;
+        }
+    }
 }
 
 /// Runs the main TUI event loop.
@@ -652,6 +798,9 @@ pub fn run_app(guard: &mut TerminalGuard) -> Result<Option<String>> {
     let mut app = App::default();
 
     loop {
+        // Poll for installation progress (non-blocking)
+        app.poll_install_progress();
+
         guard
             .terminal
             .draw(|frame| render(&app, frame))
@@ -686,18 +835,8 @@ fn render(app: &App, frame: &mut Frame) {
                 &app.command_input,
                 app.input_mode == InputMode::Command,
                 &app.status_message,
+                app.cursor_display_pos(),
             );
-
-            // Set cursor position if in command mode
-            if app.input_mode == InputMode::Command {
-                // Cursor position: area.x + 1 (border) + 1 (colon) + cursor_display_pos
-                #[allow(clippy::cast_possible_truncation)]
-                let cursor_x = area.x + 2 + app.cursor_display_pos() as u16;
-                // The input is in the third chunk (index 2), after logo (8 lines) and menu (min 6)
-                // This is a rough estimate; proper calculation would require knowing exact layout
-                let cursor_y = area.y + area.height.saturating_sub(4);
-                frame.set_cursor_position((cursor_x, cursor_y));
-            }
         }
         Screen::Toolchains => {
             toolchain_view::render(frame, area, &app.theme, &app.toolchains_state);
@@ -1224,16 +1363,19 @@ mod tests {
     }
 
     #[test]
-    fn esc_from_progress_when_not_completed() {
+    fn esc_from_progress_when_not_completed_cancels() {
         let mut app = App {
             screen: Screen::Progress,
             progress_state: ProgressState::new("Test"),
             ..App::default()
         };
-        // Not completed, Esc should not change screen
+        // Not completed, Esc should cancel the operation
 
         app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        // Should stay on progress screen but mark as completed with error
         assert_eq!(app.screen, Screen::Progress);
+        assert!(app.progress_state.completed);
+        assert!(app.progress_state.error.is_some());
     }
 
     #[test]
@@ -1249,5 +1391,182 @@ mod tests {
         app.command_input = String::from("h\u{00e9}llo"); // e with accent
         app.cursor_pos = 6; // After the accented e (which is 2 bytes)
         assert_eq!(app.cursor_display_pos(), 5); // 5 characters
+    }
+
+    #[test]
+    fn toolchains_enter_on_empty_starts_installation() {
+        let mut app = App {
+            screen: Screen::Toolchains,
+            toolchains_state: ToolchainsState::new(), // empty
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+        // Should switch to progress screen and start installation
+        assert_eq!(app.screen, Screen::Progress);
+        assert!(!app.should_quit);
+        assert!(app.pending_command.is_none());
+        assert!(app.install_receiver.is_some());
+        assert_eq!(app.previous_screen, Some(Screen::Toolchains));
+    }
+
+    #[test]
+    fn toolchains_i_on_empty_starts_installation() {
+        let mut app = App {
+            screen: Screen::Toolchains,
+            toolchains_state: ToolchainsState::new(), // empty
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
+
+        // Should switch to progress screen and start installation
+        assert_eq!(app.screen, Screen::Progress);
+        assert!(!app.should_quit);
+        assert!(app.pending_command.is_none());
+        assert!(app.install_receiver.is_some());
+    }
+
+    #[test]
+    fn toolchains_i_with_toolchains_does_nothing() {
+        let mut app = App {
+            screen: Screen::Toolchains,
+            toolchains_state: ToolchainsState {
+                toolchains: vec![ToolchainInfo {
+                    version: "0.1.0".to_string(),
+                    is_default: true,
+                    metadata: None,
+                }],
+                selected: 0,
+                loaded: true,
+            },
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
+
+        // Should not quit or set pending command
+        assert!(!app.should_quit);
+        assert!(app.pending_command.is_none());
+        // Should stay on toolchains screen
+        assert_eq!(app.screen, Screen::Toolchains);
+    }
+
+    #[test]
+    fn start_installation_switches_to_progress_screen() {
+        let mut app = App {
+            screen: Screen::Main,
+            ..App::default()
+        };
+
+        app.start_installation(None);
+
+        assert_eq!(app.screen, Screen::Progress);
+        assert_eq!(app.previous_screen, Some(Screen::Main));
+        assert!(app.install_receiver.is_some());
+        assert!(!app.progress_state.items.is_empty());
+    }
+
+    #[test]
+    fn poll_install_progress_updates_state_on_download_progress() {
+        use std::sync::mpsc;
+
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel();
+        app.install_receiver = Some(rx);
+        app.progress_state = ProgressState::new("Test");
+        app.progress_state.add_item(ProgressItem::new("Download"));
+
+        // Send a download progress message
+        tx.send(InstallProgress::DownloadProgress {
+            downloaded: 512,
+            speed: 1024,
+        })
+        .expect("Should send");
+
+        app.poll_install_progress();
+
+        let item = app.progress_state.items.first().expect("Should have item");
+        assert_eq!(item.current, 512);
+        assert_eq!(item.speed_bytes_per_sec, Some(1024));
+    }
+
+    #[test]
+    fn poll_install_progress_handles_completion() {
+        use std::sync::mpsc;
+
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel();
+        app.install_receiver = Some(rx);
+        app.progress_state = ProgressState::new("Test");
+        app.progress_state.add_item(ProgressItem::new("Download"));
+
+        // Send completion message
+        tx.send(InstallProgress::Completed {
+            version: String::from("0.1.0"),
+        })
+        .expect("Should send");
+
+        app.poll_install_progress();
+
+        assert!(app.progress_state.completed);
+        assert!(app.install_receiver.is_none());
+        assert!(app.progress_state.status.contains("0.1.0"));
+    }
+
+    #[test]
+    fn poll_install_progress_handles_failure() {
+        use std::sync::mpsc;
+
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel();
+        app.install_receiver = Some(rx);
+        app.progress_state = ProgressState::new("Test");
+
+        // Send failure message
+        tx.send(InstallProgress::Failed {
+            error: String::from("Network error"),
+        })
+        .expect("Should send");
+
+        app.poll_install_progress();
+
+        assert!(app.progress_state.completed);
+        assert!(app.progress_state.error.is_some());
+        assert!(app.install_receiver.is_none());
+    }
+
+    #[test]
+    fn return_from_progress_navigates_to_previous_screen() {
+        let mut app = App {
+            screen: Screen::Progress,
+            previous_screen: Some(Screen::Toolchains),
+            progress_state: ProgressState::new("Test"),
+            ..App::default()
+        };
+        app.progress_state.complete();
+
+        app.return_from_progress();
+
+        assert_eq!(app.screen, Screen::Toolchains);
+        assert!(app.previous_screen.is_none());
+        assert!(app.install_receiver.is_none());
+    }
+
+    #[test]
+    fn cancel_installation_sets_error() {
+        use std::sync::mpsc;
+
+        let mut app = App::default();
+        let (_tx, rx) = mpsc::channel::<InstallProgress>();
+        app.install_receiver = Some(rx);
+        app.progress_state = ProgressState::new("Test");
+
+        app.cancel_installation();
+
+        assert!(app.progress_state.completed);
+        assert!(app.progress_state.error.is_some());
+        assert!(app.install_receiver.is_none());
     }
 }

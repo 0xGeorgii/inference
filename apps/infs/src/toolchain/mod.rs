@@ -24,7 +24,7 @@ pub mod platform;
 pub mod verify;
 
 pub use archive::extract_zip;
-pub use download::download_file;
+pub use download::{ProgressCallback, ProgressEvent, download_file, download_file_with_callback};
 pub use manifest::{fetch_artifact, fetch_manifest};
 pub use paths::ToolchainPaths;
 pub use platform::Platform;

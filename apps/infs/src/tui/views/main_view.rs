@@ -7,16 +7,17 @@
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::tui::menu::{Menu, MENU_ITEMS};
+use crate::tui::menu::{MENU_ITEMS, Menu};
 use crate::tui::theme::Theme;
 
 /// Renders the main view.
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -25,6 +26,7 @@ pub fn render(
     command_input: &str,
     is_command_mode: bool,
     status_message: &str,
+    cursor_pos: usize,
 ) {
     let chunks = Layout::vertical([
         Constraint::Length(8), // Logo and version
@@ -36,40 +38,85 @@ pub fn render(
 
     render_header(frame, chunks[0], theme);
     render_menu(frame, chunks[1], theme, menu);
-    render_input(frame, chunks[2], theme, command_input, is_command_mode);
+    render_input(frame, chunks[2], theme, command_input, is_command_mode, cursor_pos);
     render_status(frame, chunks[3], theme, status_message);
 }
 
-/// Renders the header with logo and version.
+/// Renders the header with colorful "I" logo and version/directory info.
 fn render_header(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let logo = r"
-  _____       __
- |_   _|     / _| ___ _ __ ___ _ __   ___ ___
-   | | _ __ | |_ / _ \ '__/ _ \ '_ \ / __/ _ \
-   | || '_ \|  _|  __/ | |  __/ | | | (_|  __/
-  _|_||_| |_||_|  \___|_|  \___|_| |_|\___\___|
-";
+    // Split header into logo (left) and info (right)
+    let header_chunks = Layout::horizontal([
+        Constraint::Length(14), // Logo width
+        Constraint::Min(20),    // Info area
+    ])
+    .split(area);
+
+    render_logo(frame, header_chunks[0]);
+    render_info(frame, header_chunks[1], theme);
+}
+
+/// Renders the Inference-style lowercase "i" logo.
+fn render_logo(frame: &mut Frame, area: Rect) {
+    use ratatui::style::Color;
+
+    // Dot color: #810f0c (dark red) - matches Inference branding
+    let dot_color = Color::Rgb(0x81, 0x0f, 0x0c);
+
+    // Stem color: white/light for visibility (like the logo outline)
+    let stem_color = Color::White;
+
+    // Inference-style calligraphic "i"
+    let styled_lines = vec![
+        // Dot (red circle)
+        Line::from(Span::styled("    ██    ", Style::default().fg(dot_color))),
+        // Gap between dot and stem
+        Line::from(""),
+        // Top of stem with left serif
+        Line::from(Span::styled("   ███    ", Style::default().fg(stem_color))),
+        // Stem
+        Line::from(Span::styled("    ██    ", Style::default().fg(stem_color))),
+        Line::from(Span::styled("    ██    ", Style::default().fg(stem_color))),
+        // Bottom curve sweeping left
+        Line::from(Span::styled("  ██████  ", Style::default().fg(stem_color))),
+    ];
+
+    let logo = Paragraph::new(styled_lines).alignment(Alignment::Left);
+    frame.render_widget(logo, area);
+}
+
+/// Renders the version and directory info.
+fn render_info(frame: &mut Frame, area: Rect, theme: &Theme) {
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let cwd = std::env::current_dir()
         .map_or_else(|_| String::from("<unknown>"), |p| p.display().to_string());
 
-    let header_text = vec![
-        Line::from(logo.trim_start_matches('\n')),
+    // Truncate directory if too long
+    let max_dir_len = area.width.saturating_sub(15) as usize;
+    let display_cwd = if cwd.len() > max_dir_len && max_dir_len > 3 {
+        format!("...{}", &cwd[cwd.len() - (max_dir_len - 3)..])
+    } else {
+        cwd
+    };
+
+    let info_lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Inference Toolchain",
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Version: ", Style::default().fg(theme.muted)),
-            Span::raw(&version),
-            Span::raw("  "),
+            Span::styled("Version:   ", Style::default().fg(theme.muted)),
+            Span::styled(&version, Style::default().fg(theme.highlight)),
+        ]),
+        Line::from(vec![
             Span::styled("Directory: ", Style::default().fg(theme.muted)),
-            Span::raw(&cwd),
+            Span::raw(&display_cwd),
         ]),
     ];
 
-    let header = Paragraph::new(header_text)
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::NONE));
-
-    frame.render_widget(header, area);
+    let info = Paragraph::new(info_lines).alignment(Alignment::Left);
+    frame.render_widget(info, area);
 }
 
 /// Renders the menu with navigation indicators.
@@ -90,9 +137,7 @@ fn render_menu(frame: &mut Frame, area: Rect, theme: &Theme, menu: &Menu) {
                 .add_modifier(Modifier::BOLD)
         };
         let label_style = if is_selected {
-            Style::default()
-                .fg(theme.text)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.text)
         };
@@ -124,18 +169,18 @@ fn render_menu(frame: &mut Frame, area: Rect, theme: &Theme, menu: &Menu) {
 }
 
 /// Renders the command input line.
+///
+/// Uses the official ratatui `user_input` example pattern for cursor positioning.
 fn render_input(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
     command_input: &str,
     is_command_mode: bool,
+    cursor_pos: usize,
 ) {
     let (input_text, cursor_style) = if is_command_mode {
-        (
-            format!(":{command_input}"),
-            Style::default().fg(theme.text),
-        )
+        (format!(":{command_input}"), Style::default().fg(theme.text))
     } else {
         (
             String::from("Press ':' to enter command mode"),
@@ -143,22 +188,24 @@ fn render_input(
         )
     };
 
-    let input = Paragraph::new(input_text)
-        .style(cursor_style)
-        .block(
-            Block::default()
-                .title(" Input ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border)),
-        );
+    let input = Paragraph::new(input_text).style(cursor_style).block(
+        Block::default()
+            .title(" Input ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border)),
+    );
 
     frame.render_widget(input, area);
 
     if is_command_mode {
+        // Official ratatui pattern: use outer area coordinates + 1 for borders
+        // cursor_x: area.x + 1 (left border) + 1 (colon) + cursor position
+        // cursor_y: area.y + 1 (top border)
         #[allow(clippy::cast_possible_truncation)]
-        let cursor_x = area.x + 1 + command_input.len() as u16 + 1;
-        let cursor_y = area.y + 1;
-        frame.set_cursor_position((cursor_x, cursor_y));
+        frame.set_cursor_position(Position::new(
+            area.x + 1 + 1 + cursor_pos as u16,
+            area.y + 1,
+        ));
     }
 }
 

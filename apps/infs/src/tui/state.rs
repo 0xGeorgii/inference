@@ -20,8 +20,48 @@ pub enum Screen {
     /// Doctor check results view.
     Doctor,
     /// Progress view for downloads and operations.
-    #[allow(dead_code)]
     Progress,
+}
+
+/// Message sent from installation task to TUI for progress updates.
+///
+/// These messages are sent via a channel from the background installation thread
+/// to the main TUI event loop. The TUI polls the channel non-blocking and updates
+/// the progress display accordingly.
+#[derive(Debug, Clone)]
+pub enum InstallProgress {
+    /// A new phase of the installation has started.
+    PhaseStarted {
+        /// Description of the phase (e.g., "Fetching manifest", "Downloading").
+        phase: String,
+    },
+    /// Download has started with a known total size.
+    DownloadStarted {
+        /// Total file size in bytes.
+        total: u64,
+    },
+    /// Download progress update.
+    DownloadProgress {
+        /// Bytes downloaded so far.
+        downloaded: u64,
+        /// Current download speed in bytes per second.
+        speed: u64,
+    },
+    /// A phase of the installation has completed.
+    PhaseCompleted {
+        /// Description of the completed phase.
+        phase: String,
+    },
+    /// Installation completed successfully.
+    Completed {
+        /// The version that was installed.
+        version: String,
+    },
+    /// Installation failed with an error.
+    Failed {
+        /// Error description.
+        error: String,
+    },
 }
 
 impl Screen {
@@ -169,7 +209,6 @@ pub struct ProgressItem {
 impl ProgressItem {
     /// Creates a new progress item.
     #[must_use]
-    #[allow(dead_code)]
     pub fn new(description: impl Into<String>) -> Self {
         Self {
             description: description.into(),
@@ -196,7 +235,6 @@ impl ProgressItem {
     }
 
     /// Marks the start of the download operation.
-    #[allow(dead_code)]
     pub fn start(&mut self) {
         self.started_at = Some(std::time::Instant::now());
     }
@@ -211,7 +249,6 @@ impl ProgressItem {
     }
 
     /// Updates the current progress with speed information.
-    #[allow(dead_code)]
     pub fn update_with_speed(&mut self, current: u64, speed: u64) {
         self.current = current;
         self.speed_bytes_per_sec = Some(speed);
@@ -221,7 +258,6 @@ impl ProgressItem {
     }
 
     /// Marks this item as completed.
-    #[allow(dead_code)]
     pub fn complete(&mut self) {
         self.completed = true;
         if self.total > 0 {
@@ -330,7 +366,6 @@ pub struct ProgressState {
 impl ProgressState {
     /// Creates a new progress state with a title.
     #[must_use]
-    #[allow(dead_code)]
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
@@ -342,7 +377,6 @@ impl ProgressState {
     }
 
     /// Adds a progress item.
-    #[allow(dead_code)]
     pub fn add_item(&mut self, item: ProgressItem) {
         self.items.push(item);
     }
@@ -364,19 +398,16 @@ impl ProgressState {
     }
 
     /// Sets the status message.
-    #[allow(dead_code)]
     pub fn set_status(&mut self, status: impl Into<String>) {
         self.status = status.into();
     }
 
     /// Marks the operation as completed.
-    #[allow(dead_code)]
     pub fn complete(&mut self) {
         self.completed = true;
     }
 
     /// Sets an error message and marks as complete.
-    #[allow(dead_code)]
     pub fn set_error(&mut self, error: impl Into<String>) {
         self.error = Some(error.into());
         self.completed = true;
@@ -652,5 +683,109 @@ mod tests {
         assert!(item.started_at.is_none());
         item.start();
         assert!(item.started_at.is_some());
+    }
+
+    #[test]
+    fn install_progress_phase_started_contains_phase() {
+        let progress = InstallProgress::PhaseStarted {
+            phase: String::from("Testing"),
+        };
+        match progress {
+            InstallProgress::PhaseStarted { phase } => {
+                assert_eq!(phase, "Testing");
+            }
+            _ => panic!("Expected PhaseStarted variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_download_started_contains_total() {
+        let progress = InstallProgress::DownloadStarted { total: 1024 };
+        match progress {
+            InstallProgress::DownloadStarted { total } => {
+                assert_eq!(total, 1024);
+            }
+            _ => panic!("Expected DownloadStarted variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_download_progress_contains_data() {
+        let progress = InstallProgress::DownloadProgress {
+            downloaded: 512,
+            speed: 1024,
+        };
+        match progress {
+            InstallProgress::DownloadProgress { downloaded, speed } => {
+                assert_eq!(downloaded, 512);
+                assert_eq!(speed, 1024);
+            }
+            _ => panic!("Expected DownloadProgress variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_phase_completed_contains_phase() {
+        let progress = InstallProgress::PhaseCompleted {
+            phase: String::from("Download"),
+        };
+        match progress {
+            InstallProgress::PhaseCompleted { phase } => {
+                assert_eq!(phase, "Download");
+            }
+            _ => panic!("Expected PhaseCompleted variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_completed_contains_version() {
+        let progress = InstallProgress::Completed {
+            version: String::from("0.1.0"),
+        };
+        match progress {
+            InstallProgress::Completed { version } => {
+                assert_eq!(version, "0.1.0");
+            }
+            _ => panic!("Expected Completed variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_failed_contains_error() {
+        let progress = InstallProgress::Failed {
+            error: String::from("Network error"),
+        };
+        match progress {
+            InstallProgress::Failed { error } => {
+                assert_eq!(error, "Network error");
+            }
+            _ => panic!("Expected Failed variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_is_clone() {
+        let progress = InstallProgress::DownloadProgress {
+            downloaded: 100,
+            speed: 50,
+        };
+        let cloned = progress.clone();
+        match cloned {
+            InstallProgress::DownloadProgress { downloaded, speed } => {
+                assert_eq!(downloaded, 100);
+                assert_eq!(speed, 50);
+            }
+            _ => panic!("Expected DownloadProgress variant"),
+        }
+    }
+
+    #[test]
+    fn install_progress_is_debug() {
+        let progress = InstallProgress::PhaseStarted {
+            phase: String::from("test"),
+        };
+        let debug_str = format!("{progress:?}");
+        assert!(debug_str.contains("PhaseStarted"));
+        assert!(debug_str.contains("test"));
     }
 }

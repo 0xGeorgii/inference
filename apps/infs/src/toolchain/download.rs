@@ -60,7 +60,6 @@ pub enum ProgressEvent {
 ///
 /// The callback is invoked on each progress event. It is wrapped in `Arc`
 /// to allow sharing across async boundaries.
-#[allow(dead_code)]
 pub type ProgressCallback = Arc<dyn Fn(ProgressEvent) + Send + Sync>;
 
 /// Maximum number of download retry attempts.
@@ -267,7 +266,6 @@ const PROGRESS_CALLBACK_INTERVAL_MS: u128 = 100;
 /// - The network request fails after all retries
 /// - The destination file cannot be created
 /// - Writing to the file fails
-#[allow(dead_code)]
 pub async fn download_file_with_callback(
     url: &str,
     dest: &Path,
