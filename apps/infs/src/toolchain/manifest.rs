@@ -10,23 +10,44 @@
 //!
 //! The default manifest URL is `https://inference-lang.org/releases/manifest.json`.
 //! This can be overridden by setting the `INFS_MANIFEST_URL` environment variable.
+//!
+//! ## Caching
+//!
+//! The manifest is cached locally at `~/.infs/cache/manifest.json` with a 15-minute
+//! TTL (configurable via `INFS_MANIFEST_CACHE_TTL` environment variable for testing).
+//! On cache miss or expiry, the manifest is fetched from the network.
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Platform;
 
 /// Environment variable to override the manifest URL.
 pub const MANIFEST_URL_ENV: &str = "INFS_MANIFEST_URL";
 
+/// Environment variable to override the cache TTL (in seconds) for testing.
+pub const CACHE_TTL_ENV: &str = "INFS_MANIFEST_CACHE_TTL";
+
 /// Default URL for the release manifest.
 pub const DEFAULT_MANIFEST_URL: &str = "https://inference-lang.org/releases/manifest.json";
+
+/// Default cache TTL in seconds (15 minutes).
+const DEFAULT_CACHE_TTL_SECS: u64 = 15 * 60;
+
+/// Cached manifest with timestamp.
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedManifest {
+    manifest: ReleaseManifest,
+    timestamp: u64,
+}
 
 /// Release manifest containing available toolchain versions.
 ///
 /// The manifest is a JSON document that lists all available toolchain versions
 /// along with their platform-specific download URLs and checksums.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct ReleaseManifest {
     /// Schema version of the manifest format.
@@ -44,7 +65,7 @@ pub struct ReleaseManifest {
 }
 
 /// Information about a specific toolchain version.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct VersionInfo {
     /// The version string (e.g., "0.1.0").
@@ -56,7 +77,7 @@ pub struct VersionInfo {
 }
 
 /// Platform-specific download artifact.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformArtifact {
     /// Platform identifier (e.g., "linux-x64", "macos-arm64", "windows-x64").
     pub platform: String,
@@ -73,7 +94,7 @@ impl ReleaseManifest {
     /// Finds version information for a specific version string.
     ///
     /// Returns `None` if the version is not found in the manifest.
-    #[must_use]
+    #[must_use = "returns version info without side effects"]
     pub fn find_version(&self, version: &str) -> Option<&VersionInfo> {
         self.versions.iter().find(|v| v.version == version)
     }
@@ -81,19 +102,19 @@ impl ReleaseManifest {
     /// Returns the latest stable version information.
     ///
     /// Returns `None` if the latest stable version is not found in the manifest.
-    #[must_use]
+    #[must_use = "returns version info without side effects"]
     pub fn latest_stable_version(&self) -> Option<&VersionInfo> {
         self.find_version(&self.latest_stable)
     }
 
     /// Returns all available version strings.
-    #[must_use]
+    #[must_use = "returns version list without side effects"]
     pub fn available_versions(&self) -> Vec<&str> {
         self.versions.iter().map(|v| v.version.as_str()).collect()
     }
 
     /// Finds the infs CLI artifact for the given platform.
-    #[must_use]
+    #[must_use = "returns artifact info without side effects"]
     pub fn find_infs_artifact(&self, platform: Platform) -> Option<&PlatformArtifact> {
         self.infs_artifacts
             .iter()
@@ -105,7 +126,7 @@ impl VersionInfo {
     /// Finds the artifact for a specific platform.
     ///
     /// Returns `None` if no artifact exists for the given platform.
-    #[must_use]
+    #[must_use = "returns artifact info without side effects"]
     pub fn find_artifact(&self, platform: Platform) -> Option<&PlatformArtifact> {
         self.platforms
             .iter()
@@ -114,12 +135,111 @@ impl VersionInfo {
 }
 
 /// Returns the manifest URL, checking the environment variable first.
-#[must_use]
+#[must_use = "returns the manifest URL without side effects"]
 pub fn manifest_url() -> String {
     std::env::var(MANIFEST_URL_ENV).unwrap_or_else(|_| DEFAULT_MANIFEST_URL.to_string())
 }
 
-/// Fetches the release manifest from the configured URL.
+/// Returns the cache TTL in seconds, checking the environment variable first.
+fn cache_ttl_secs() -> u64 {
+    std::env::var(CACHE_TTL_ENV)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_CACHE_TTL_SECS)
+}
+
+/// Returns the path to the manifest cache file.
+fn cache_path() -> Result<PathBuf> {
+    let root = if let Ok(home) = std::env::var(super::paths::INFS_HOME_ENV) {
+        PathBuf::from(home)
+    } else {
+        #[cfg(windows)]
+        {
+            dirs::data_dir()
+                .context("Cannot determine AppData directory")?
+                .join("infs")
+        }
+        #[cfg(not(windows))]
+        {
+            dirs::home_dir()
+                .context("Cannot determine home directory")?
+                .join(".infs")
+        }
+    };
+    Ok(root.join("cache").join("manifest.json"))
+}
+
+/// Returns the current Unix timestamp.
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Attempts to load the manifest from cache if valid.
+fn load_from_cache() -> Option<ReleaseManifest> {
+    let cache_file = cache_path().ok()?;
+    let content = std::fs::read_to_string(&cache_file).ok()?;
+    let cached: CachedManifest = serde_json::from_str(&content).ok()?;
+
+    let now = current_timestamp();
+    let ttl = cache_ttl_secs();
+
+    if now.saturating_sub(cached.timestamp) < ttl {
+        Some(cached.manifest)
+    } else {
+        None
+    }
+}
+
+/// Saves the manifest to cache.
+fn save_to_cache(manifest: &ReleaseManifest) {
+    let Ok(cache_file) = cache_path() else {
+        return;
+    };
+
+    if let Some(parent) = cache_file.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+
+    let cached = CachedManifest {
+        manifest: manifest.clone(),
+        timestamp: current_timestamp(),
+    };
+
+    let Ok(content) = serde_json::to_string_pretty(&cached) else {
+        return;
+    };
+
+    let _ = std::fs::write(cache_file, content);
+}
+
+/// Fetches the release manifest, using a local cache with 15-minute TTL.
+///
+/// The manifest is cached at `~/.infs/cache/manifest.json`. If the cache is valid,
+/// returns the cached manifest without making a network request. On cache miss or
+/// expiry, fetches from the network and updates the cache.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The network request fails (and no valid cache exists)
+/// - The response cannot be parsed as JSON
+/// - The manifest schema is invalid
+pub async fn fetch_manifest() -> Result<ReleaseManifest> {
+    if let Some(manifest) = load_from_cache() {
+        return Ok(manifest);
+    }
+
+    let manifest = fetch_manifest_from_network().await?;
+    save_to_cache(&manifest);
+    Ok(manifest)
+}
+
+/// Fetches the release manifest directly from the network, bypassing cache.
 ///
 /// # Errors
 ///
@@ -127,7 +247,7 @@ pub fn manifest_url() -> String {
 /// - The network request fails
 /// - The response cannot be parsed as JSON
 /// - The manifest schema is invalid
-pub async fn fetch_manifest() -> Result<ReleaseManifest> {
+async fn fetch_manifest_from_network() -> Result<ReleaseManifest> {
     let url = manifest_url();
 
     let client = reqwest::Client::builder()
@@ -313,6 +433,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn manifest_url_uses_env_when_set() {
         unsafe { std::env::set_var(MANIFEST_URL_ENV, "https://custom.example.com/manifest.json") };
         assert_eq!(manifest_url(), "https://custom.example.com/manifest.json");
@@ -320,8 +441,42 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn manifest_url_uses_default_when_env_not_set() {
         unsafe { std::env::remove_var(MANIFEST_URL_ENV) };
         assert_eq!(manifest_url(), DEFAULT_MANIFEST_URL);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn cache_ttl_uses_env_when_set() {
+        unsafe { std::env::set_var(CACHE_TTL_ENV, "60") };
+        assert_eq!(cache_ttl_secs(), 60);
+        unsafe { std::env::remove_var(CACHE_TTL_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn cache_ttl_uses_default_when_env_not_set() {
+        unsafe { std::env::remove_var(CACHE_TTL_ENV) };
+        assert_eq!(cache_ttl_secs(), DEFAULT_CACHE_TTL_SECS);
+    }
+
+    #[test]
+    fn cached_manifest_serializes_and_deserializes() {
+        let manifest: ReleaseManifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let cached = CachedManifest {
+            manifest: manifest.clone(),
+            timestamp: 1_000_000,
+        };
+
+        let json = serde_json::to_string(&cached).expect("Should serialize");
+        let deserialized: CachedManifest =
+            serde_json::from_str(&json).expect("Should deserialize");
+
+        assert_eq!(deserialized.timestamp, 1_000_000);
+        assert_eq!(deserialized.manifest.latest_stable, manifest.latest_stable);
     }
 }

@@ -7,6 +7,8 @@
 //! ## Compilation Commands
 //!
 //! - [`build`] - Compile Inference source files
+//! - [`run`] - Build and execute WASM with wasmtime
+//! - [`verify`] - Compile to WASM, translate to Rocq, and verify with coqc
 //! - [`version`] - Display version information
 //!
 //! ## Project Management Commands
@@ -30,6 +32,8 @@ pub mod init;
 pub mod install;
 pub mod list;
 pub mod new;
+pub mod run;
 pub mod self_cmd;
 pub mod uninstall;
+pub mod verify;
 pub mod version;

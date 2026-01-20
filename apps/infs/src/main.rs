@@ -11,6 +11,8 @@
 //! - `new` - Create a new Inference project
 //! - `init` - Initialize an existing directory as an Inference project
 //! - `build` - Compile Inference source files
+//! - `run` - Build and execute WASM with wasmtime
+//! - `verify` - Compile to WASM, translate to Rocq, and verify with coqc
 //! - `version` - Display version information
 //! - `install` - Install toolchain versions
 //! - `uninstall` - Remove toolchain versions
@@ -54,13 +56,15 @@
 //! ```
 
 mod commands;
+mod errors;
 mod project;
 mod toolchain;
 mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{build, default, doctor, init, install, list, new, self_cmd, uninstall, version};
+use commands::{build, default, doctor, init, install, list, new, run, self_cmd, uninstall, verify, version};
+use errors::InfsError;
 
 /// Inference unified CLI toolchain.
 ///
@@ -111,8 +115,23 @@ pub enum Commands {
     /// codegen.
     Build(build::BuildArgs),
 
+    /// Build and run a source file.
+    ///
+    /// Compiles the source file to WASM and executes it with wasmtime.
+    /// Arguments after the path are passed to the program.
+    Run(run::RunArgs),
+
+    /// Verify proofs with Rocq.
+    ///
+    /// Compiles source to WASM, translates to Rocq (.v), and runs coqc
+    /// to verify the generated proofs.
+    Verify(verify::VerifyArgs),
+
     /// Display version information.
-    Version,
+    ///
+    /// Shows the version of the infs CLI. Use -v or --verbose for detailed
+    /// information including build date, platform, and compiler version.
+    Version(version::VersionArgs),
 
     /// Install a toolchain version.
     ///
@@ -152,9 +171,22 @@ pub enum Commands {
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
-        eprintln!("Error: {e:?}");
-        std::process::exit(1);
+        let exit_code = handle_error(&e);
+        std::process::exit(exit_code);
     }
+}
+
+/// Handles an error and returns the appropriate exit code.
+///
+/// For `ProcessExitCode` errors, returns the embedded exit code without
+/// printing an error message (the subprocess already printed its output).
+/// For all other errors, prints the error and returns exit code 1.
+fn handle_error(e: &anyhow::Error) -> i32 {
+    if let Some(InfsError::ProcessExitCode { code }) = e.downcast_ref::<InfsError>() {
+        return *code;
+    }
+    eprintln!("Error: {e:?}");
+    1
 }
 
 async fn run() -> Result<()> {
@@ -164,7 +196,9 @@ async fn run() -> Result<()> {
         Some(Commands::New(args)) => new::execute(&args),
         Some(Commands::Init(args)) => init::execute(&args),
         Some(Commands::Build(args)) => build::execute(&args),
-        Some(Commands::Version) => version::execute(),
+        Some(Commands::Run(args)) => run::execute(&args),
+        Some(Commands::Verify(args)) => verify::execute(&args),
+        Some(Commands::Version(args)) => version::execute(&args),
         Some(Commands::Install(args)) => install::execute(&args).await,
         Some(Commands::Uninstall(args)) => uninstall::execute(&args).await,
         Some(Commands::List) => list::execute().await,

@@ -13,7 +13,7 @@
 use anyhow::{Result, bail};
 use clap::Args;
 
-use crate::toolchain::{Platform, ToolchainPaths};
+use crate::toolchain::ToolchainPaths;
 
 /// Arguments for the default command.
 #[derive(Args)]
@@ -54,28 +54,9 @@ pub async fn execute(args: &DefaultArgs) -> Result<()> {
     }
 
     paths.set_default_version(version)?;
-    update_symlinks(&paths, version)?;
+    paths.update_symlinks(version)?;
 
     println!("Default toolchain set to {version}.");
-
-    Ok(())
-}
-
-/// Updates symlinks in the bin directory to point to the specified version.
-fn update_symlinks(paths: &ToolchainPaths, version: &str) -> Result<()> {
-    let platform = Platform::detect()?;
-    let ext = platform.executable_extension();
-
-    let binaries = [
-        format!("inf-llc{ext}"),
-        format!("rust-lld{ext}"),
-    ];
-
-    std::fs::create_dir_all(&paths.bin)?;
-
-    for binary in &binaries {
-        paths.create_symlink(version, binary)?;
-    }
 
     Ok(())
 }

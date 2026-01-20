@@ -21,9 +21,19 @@
 //!
 //! - [`terminal`] - Terminal setup and cleanup with RAII guard
 //! - [`app`] - Main application state and event loop
+//! - [`state`] - Screen state machine and view states
+//! - [`theme`] - Color theme system
+//! - [`menu`] - Menu navigation
+//! - [`views`] - Screen rendering modules
+//! - [`widgets`] - Reusable widget components
 
-mod app;
-mod terminal;
+pub mod app;
+pub mod menu;
+pub mod state;
+pub mod terminal;
+pub mod theme;
+pub mod views;
+pub mod widgets;
 
 use std::io::IsTerminal;
 
@@ -58,18 +68,73 @@ pub fn should_use_tui() -> bool {
 /// This function sets up the terminal, runs the main event loop,
 /// and ensures proper cleanup on exit or error.
 ///
+/// If the TUI exits with a pending command (e.g., `build`, `run`, `verify`),
+/// this function restores the terminal, executes the command, waits for user
+/// to press Enter, and then restarts the TUI.
+///
 /// # Errors
 ///
 /// Returns an error if:
 /// - Terminal setup fails
 /// - Event handling fails
 /// - Drawing fails
+/// - Command execution fails
 pub fn run() -> Result<()> {
-    let mut guard = TerminalGuard::new().context("failed to initialize terminal")?;
+    loop {
+        let pending_command = {
+            let mut guard = TerminalGuard::new().context("failed to initialize terminal")?;
+            app::run_app(&mut guard).context("TUI application error")?
+            // Guard is dropped here, restoring terminal
+        };
 
-    app::run_app(&mut guard).context("TUI application error")?;
+        match pending_command {
+            Some(command) => {
+                execute_pending_command(&command)?;
+                wait_for_enter();
+                // Loop continues, restarting TUI
+            }
+            None => {
+                // No pending command, exit normally
+                break;
+            }
+        }
+    }
 
     Ok(())
+}
+
+/// Executes a pending command after the TUI has exited.
+fn execute_pending_command(command: &str) -> Result<()> {
+    let exe = std::env::current_exe().context("failed to get current executable")?;
+
+    println!();
+    let status = std::process::Command::new(&exe)
+        .arg(command)
+        .status()
+        .with_context(|| format!("failed to execute 'infs {command}'"))?;
+
+    if !status.success() {
+        // Log failure but don't exit - we'll return to TUI
+        eprintln!(
+            "\nCommand 'infs {command}' exited with status: {}",
+            status.code().unwrap_or(-1)
+        );
+    }
+
+    Ok(())
+}
+
+/// Waits for the user to press Enter before returning to the TUI.
+fn wait_for_enter() {
+    use std::io::{BufRead, Write};
+
+    print!("\nPress Enter to return to TUI...");
+    let _ = std::io::stdout().flush();
+
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    let mut buffer = String::new();
+    let _ = handle.read_line(&mut buffer);
 }
 
 #[cfg(test)]

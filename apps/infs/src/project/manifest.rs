@@ -7,13 +7,24 @@
 //!
 //! ## Manifest Format
 //!
-//! The Inference.toml file uses a minimal format:
+//! The Inference.toml file supports the following sections:
 //!
 //! ```toml
 //! [package]
 //! name = "myproject"
 //! version = "0.1.0"
+//! edition = "2024"
 //! manifest_version = 1
+//!
+//! [dependencies]
+//! # Future: package dependencies
+//!
+//! [build]
+//! target = "wasm32"
+//! optimize = "release"
+//!
+//! [verification]
+//! output-dir = "proofs/"
 //! ```
 //!
 //! ## Reserved Names
@@ -22,7 +33,9 @@
 //! See [`RESERVED_WORDS`] for the complete list.
 
 use anyhow::{Context, Result, bail};
+use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Reserved words that cannot be used as project names.
@@ -76,6 +89,18 @@ pub const RESERVED_WORDS: &[&str] = &[
 pub struct InferenceToml {
     /// Package metadata section.
     pub package: Package,
+
+    /// Project dependencies.
+    #[serde(default, skip_serializing_if = "Dependencies::is_empty")]
+    pub dependencies: Dependencies,
+
+    /// Build configuration.
+    #[serde(default, skip_serializing_if = "BuildConfig::is_default")]
+    pub build: BuildConfig,
+
+    /// Verification configuration for Rocq output.
+    #[serde(default, skip_serializing_if = "VerificationConfig::is_default")]
+    pub verification: VerificationConfig,
 }
 
 /// Package metadata in the manifest.
@@ -86,6 +111,10 @@ pub struct Package {
 
     /// The project version (semver format).
     pub version: String,
+
+    /// The language edition.
+    #[serde(default = "default_edition")]
+    pub edition: String,
 
     /// Manifest schema version for future compatibility.
     #[serde(default = "default_manifest_version")]
@@ -104,25 +133,116 @@ pub struct Package {
     pub license: Option<String>,
 }
 
+/// Project dependencies section.
+///
+/// Currently a placeholder for future package management support.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Dependencies {
+    /// Map of dependency name to version specification.
+    #[serde(flatten)]
+    pub packages: HashMap<String, String>,
+}
+
+impl Dependencies {
+    /// Returns true if there are no dependencies.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.packages.is_empty()
+    }
+}
+
+/// Build configuration section.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BuildConfig {
+    /// Target platform for compilation.
+    #[serde(default = "default_target")]
+    pub target: String,
+
+    /// Optimization level.
+    #[serde(default = "default_optimize")]
+    pub optimize: String,
+}
+
+impl Default for BuildConfig {
+    fn default() -> Self {
+        Self {
+            target: default_target(),
+            optimize: default_optimize(),
+        }
+    }
+}
+
+impl BuildConfig {
+    /// Returns true if this is the default configuration.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self.target == default_target() && self.optimize == default_optimize()
+    }
+}
+
+/// Verification configuration for Rocq output.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VerificationConfig {
+    /// Output directory for generated Rocq proofs.
+    #[serde(default = "default_output_dir", rename = "output-dir")]
+    pub output_dir: String,
+}
+
+impl Default for VerificationConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: default_output_dir(),
+        }
+    }
+}
+
+impl VerificationConfig {
+    /// Returns true if this is the default configuration.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self.output_dir == default_output_dir()
+    }
+}
+
+fn default_edition() -> String {
+    String::from("2024")
+}
+
 fn default_manifest_version() -> u32 {
     1
+}
+
+fn default_target() -> String {
+    String::from("wasm32")
+}
+
+fn default_optimize() -> String {
+    String::from("debug")
+}
+
+fn default_output_dir() -> String {
+    String::from("proofs/")
 }
 
 impl InferenceToml {
     /// Creates a new manifest with the given project name.
     ///
-    /// The version defaults to "0.1.0" and `manifest_version` to 1.
+    /// The version defaults to "0.1.0", edition to "2024", and `manifest_version` to 1.
     #[must_use]
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             package: Package {
                 name: name.into(),
                 version: String::from("0.1.0"),
+                edition: default_edition(),
                 manifest_version: 1,
                 description: None,
                 authors: None,
                 license: None,
             },
+            dependencies: Dependencies::default(),
+            build: BuildConfig::default(),
+            verification: VerificationConfig::default(),
         }
     }
 
@@ -141,8 +261,19 @@ impl InferenceToml {
     /// # Errors
     ///
     /// Returns an error if serialization fails.
-    pub fn write(&self) -> Result<String> {
+    pub fn to_toml(&self) -> Result<String> {
         toml::to_string_pretty(self).context("Failed to serialize Inference.toml")
+    }
+
+    /// Writes the manifest to a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization or file writing fails.
+    pub fn write_to_file(&self, path: &Path) -> Result<()> {
+        let content = self.to_toml()?;
+        std::fs::write(path, content)
+            .with_context(|| format!("Failed to write manifest: {}", path.display()))
     }
 
     /// Validates the manifest for correctness.
@@ -160,6 +291,13 @@ impl InferenceToml {
         if self.package.version.is_empty() {
             bail!("Package version cannot be empty");
         }
+
+        Version::parse(&self.package.version).with_context(|| {
+            format!(
+                "Invalid semver version '{}'. Expected format: MAJOR.MINOR.PATCH (e.g., 1.0.0)",
+                self.package.version
+            )
+        })?;
 
         if self.package.manifest_version != 1 {
             bail!(
@@ -234,8 +372,12 @@ mod tests {
         let manifest = InferenceToml::new("myproject");
         assert_eq!(manifest.package.name, "myproject");
         assert_eq!(manifest.package.version, "0.1.0");
+        assert_eq!(manifest.package.edition, "2024");
         assert_eq!(manifest.package.manifest_version, 1);
         assert!(manifest.package.description.is_none());
+        assert!(manifest.dependencies.is_empty());
+        assert!(manifest.build.is_default());
+        assert!(manifest.verification.is_default());
     }
 
     #[test]
@@ -248,7 +390,9 @@ version = "1.0.0"
         let manifest = InferenceToml::parse(content).unwrap();
         assert_eq!(manifest.package.name, "test-project");
         assert_eq!(manifest.package.version, "1.0.0");
+        assert_eq!(manifest.package.edition, "2024");
         assert_eq!(manifest.package.manifest_version, 1);
+        assert!(manifest.dependencies.is_empty());
     }
 
     #[test]
@@ -257,19 +401,31 @@ version = "1.0.0"
 [package]
 name = "full-project"
 version = "2.1.0"
+edition = "2024"
 manifest_version = 1
 description = "A test project"
 authors = ["Alice", "Bob"]
 license = "MIT"
+
+[build]
+target = "wasm64"
+optimize = "release"
+
+[verification]
+output-dir = "custom-proofs/"
 "#;
         let manifest = InferenceToml::parse(content).unwrap();
         assert_eq!(manifest.package.name, "full-project");
+        assert_eq!(manifest.package.edition, "2024");
         assert_eq!(manifest.package.description, Some("A test project".into()));
         assert_eq!(
             manifest.package.authors,
             Some(vec!["Alice".into(), "Bob".into()])
         );
         assert_eq!(manifest.package.license, Some("MIT".into()));
+        assert_eq!(manifest.build.target, "wasm64");
+        assert_eq!(manifest.build.optimize, "release");
+        assert_eq!(manifest.verification.output_dir, "custom-proofs/");
     }
 
     #[test]
@@ -288,20 +444,76 @@ name = "test"
     }
 
     #[test]
-    fn test_write_manifest() {
+    fn test_to_toml() {
         let manifest = InferenceToml::new("myproject");
-        let output = manifest.write().unwrap();
+        let output = manifest.to_toml().unwrap();
         assert!(output.contains("name = \"myproject\""));
         assert!(output.contains("version = \"0.1.0\""));
+        assert!(output.contains("edition = \"2024\""));
         assert!(output.contains("manifest_version = 1"));
     }
 
     #[test]
     fn test_roundtrip() {
         let original = InferenceToml::new("roundtrip-test");
-        let serialized = original.write().unwrap();
+        let serialized = original.to_toml().unwrap();
         let parsed = InferenceToml::parse(&serialized).unwrap();
         assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn test_validate_invalid_semver() {
+        let mut manifest = InferenceToml::new("project");
+        manifest.package.version = String::from("not-a-version");
+        let result = manifest.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid semver"));
+    }
+
+    #[test]
+    fn test_validate_valid_semver() {
+        let mut manifest = InferenceToml::new("project");
+        manifest.package.version = String::from("1.2.3");
+        assert!(manifest.validate().is_ok());
+
+        manifest.package.version = String::from("0.0.1");
+        assert!(manifest.validate().is_ok());
+
+        manifest.package.version = String::from("10.20.30");
+        assert!(manifest.validate().is_ok());
+    }
+
+    #[test]
+    fn test_dependencies_is_empty() {
+        let deps = Dependencies::default();
+        assert!(deps.is_empty());
+
+        let mut deps = Dependencies::default();
+        deps.packages.insert(String::from("std"), String::from("0.1"));
+        assert!(!deps.is_empty());
+    }
+
+    #[test]
+    fn test_build_config_is_default() {
+        let config = BuildConfig::default();
+        assert!(config.is_default());
+
+        let config = BuildConfig {
+            target: String::from("wasm64"),
+            optimize: String::from("debug"),
+        };
+        assert!(!config.is_default());
+    }
+
+    #[test]
+    fn test_verification_config_is_default() {
+        let config = VerificationConfig::default();
+        assert!(config.is_default());
+
+        let config = VerificationConfig {
+            output_dir: String::from("custom/"),
+        };
+        assert!(!config.is_default());
     }
 
     #[test]

@@ -13,7 +13,7 @@
 use anyhow::{Context, Result, bail};
 use clap::Args;
 
-use crate::toolchain::{Platform, ToolchainPaths};
+use crate::toolchain::ToolchainPaths;
 
 /// Arguments for the uninstall command.
 #[derive(Args)]
@@ -63,51 +63,17 @@ pub async fn execute(args: &UninstallArgs) -> Result<()> {
 
         if remaining_versions.is_empty() {
             std::fs::remove_file(paths.default_file()).ok();
-            remove_symlinks(&paths)?;
+            paths.remove_symlinks()?;
             println!("No toolchains remaining. Default has been cleared.");
         } else {
             let new_default = remaining_versions.last().unwrap_or(&remaining_versions[0]);
             paths.set_default_version(new_default)?;
-            update_symlinks(&paths, new_default)?;
+            paths.update_symlinks(new_default)?;
             println!("Default toolchain changed to {new_default}.");
         }
     }
 
     println!("Toolchain {version} uninstalled successfully.");
-
-    Ok(())
-}
-
-/// Removes all symlinks from the bin directory.
-fn remove_symlinks(paths: &ToolchainPaths) -> Result<()> {
-    let platform = Platform::detect()?;
-    let ext = platform.executable_extension();
-
-    let binaries = [
-        format!("inf-llc{ext}"),
-        format!("rust-lld{ext}"),
-    ];
-
-    for binary in &binaries {
-        paths.remove_symlink(binary)?;
-    }
-
-    Ok(())
-}
-
-/// Updates symlinks in the bin directory to point to the specified version.
-fn update_symlinks(paths: &ToolchainPaths, version: &str) -> Result<()> {
-    let platform = Platform::detect()?;
-    let ext = platform.executable_extension();
-
-    let binaries = [
-        format!("inf-llc{ext}"),
-        format!("rust-lld{ext}"),
-    ];
-
-    for binary in &binaries {
-        paths.create_symlink(version, binary)?;
-    }
 
     Ok(())
 }

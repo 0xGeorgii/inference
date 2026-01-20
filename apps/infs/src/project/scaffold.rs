@@ -16,7 +16,7 @@
 //! Inference project without creating a new directory.
 
 use crate::project::manifest::{InferenceToml, validate_project_name};
-use crate::project::templates::{TemplateFile, default_template_files};
+use crate::project::templates::{DefaultTemplate, ProjectTemplate, TemplateFile};
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -33,6 +33,7 @@ use std::process::Command;
 ///
 /// * `name` - The project name (used for directory and manifest)
 /// * `parent_path` - Optional parent directory (defaults to current directory)
+/// * `template` - The project template to use
 /// * `init_git` - Whether to initialize a git repository
 ///
 /// # Returns
@@ -45,7 +46,12 @@ use std::process::Command;
 /// - The project name is invalid
 /// - The target directory already exists
 /// - File creation fails
-pub fn create_project(name: &str, parent_path: Option<&Path>, init_git: bool) -> Result<PathBuf> {
+pub fn create_project(
+    name: &str,
+    parent_path: Option<&Path>,
+    template: &dyn ProjectTemplate,
+    init_git: bool,
+) -> Result<PathBuf> {
     validate_project_name(name)?;
 
     let parent = parent_path.unwrap_or_else(|| Path::new("."));
@@ -61,7 +67,7 @@ pub fn create_project(name: &str, parent_path: Option<&Path>, init_git: bool) ->
     std::fs::create_dir_all(&project_path)
         .with_context(|| format!("Failed to create project directory: {}", project_path.display()))?;
 
-    let template_files = default_template_files(name);
+    let template_files = template.files(name);
     write_template_files(&project_path, &template_files)?;
 
     if init_git {
@@ -69,6 +75,32 @@ pub fn create_project(name: &str, parent_path: Option<&Path>, init_git: bool) ->
     }
 
     Ok(project_path)
+}
+
+/// Creates a new Inference project using the default template.
+///
+/// This is a convenience function that uses [`DefaultTemplate`].
+///
+/// # Arguments
+///
+/// * `name` - The project name (used for directory and manifest)
+/// * `parent_path` - Optional parent directory (defaults to current directory)
+/// * `init_git` - Whether to initialize a git repository
+///
+/// # Returns
+///
+/// The path to the created project directory.
+///
+/// # Errors
+///
+/// Returns an error if project creation fails.
+#[allow(dead_code)]
+pub fn create_project_default(
+    name: &str,
+    parent_path: Option<&Path>,
+    init_git: bool,
+) -> Result<PathBuf> {
+    create_project(name, parent_path, &DefaultTemplate, init_git)
 }
 
 /// Initializes an existing directory as an Inference project.
@@ -107,10 +139,7 @@ pub fn init_project(path: Option<&Path>, name: Option<&str>, create_src: bool) -
     }
 
     let manifest = InferenceToml::new(&project_name);
-    let manifest_content = manifest.write()?;
-
-    std::fs::write(&manifest_path, manifest_content)
-        .with_context(|| format!("Failed to write manifest: {}", manifest_path.display()))?;
+    manifest.write_to_file(&manifest_path)?;
 
     if create_src {
         let src_dir = project_path.join("src");
@@ -210,7 +239,8 @@ mod tests {
     #[test]
     fn test_create_project_success() {
         let parent = temp_dir();
-        let result = create_project("my_project", Some(&parent), false);
+        let template = DefaultTemplate;
+        let result = create_project("my_project", Some(&parent), &template, false);
 
         assert!(result.is_ok());
         let project_path = result.unwrap();
@@ -225,9 +255,23 @@ mod tests {
     }
 
     #[test]
+    fn test_create_project_default() {
+        let parent = temp_dir();
+        let result = create_project_default("my_project_default", Some(&parent), false);
+
+        assert!(result.is_ok());
+        let project_path = result.unwrap();
+        assert!(project_path.exists());
+        assert!(project_path.join("Inference.toml").exists());
+
+        cleanup(&parent);
+    }
+
+    #[test]
     fn test_create_project_invalid_name() {
         let parent = temp_dir();
-        let result = create_project("fn", Some(&parent), false);
+        let template = DefaultTemplate;
+        let result = create_project("fn", Some(&parent), &template, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("reserved"));
@@ -241,7 +285,8 @@ mod tests {
         let existing = parent.join("existing");
         fs::create_dir_all(&existing).unwrap();
 
-        let result = create_project("existing", Some(&parent), false);
+        let template = DefaultTemplate;
+        let result = create_project("existing", Some(&parent), &template, false);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -252,7 +297,8 @@ mod tests {
     #[test]
     fn test_create_project_with_git() {
         let parent = temp_dir();
-        let result = create_project("git_project", Some(&parent), true);
+        let template = DefaultTemplate;
+        let result = create_project("git_project", Some(&parent), &template, true);
 
         assert!(result.is_ok());
         let project_path = result.unwrap();
