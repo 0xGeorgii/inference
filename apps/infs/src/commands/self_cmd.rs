@@ -110,8 +110,12 @@ async fn execute_update() -> Result<()> {
     println!("Downloading from {}...", artifact.url);
     download_file(&artifact.url, &download_path, artifact.size).await?;
 
-    println!("Verifying checksum...");
-    verify_checksum(&download_path, &artifact.sha256)?;
+    if let Some(ref checksum) = artifact.sha256 {
+        println!("Verifying checksum...");
+        verify_checksum(&download_path, checksum)?;
+    } else {
+        println!("Skipping checksum verification (not available from GitHub API).");
+    }
 
     println!("Extracting...");
     let temp_dir = paths.downloads.join(format!("infs-{latest_version}-temp"));

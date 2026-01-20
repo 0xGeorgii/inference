@@ -118,16 +118,18 @@ async fn run_installation_inner(
         phase: format!("Downloading toolchain v{resolved_version}"),
     });
 
-    let _ = tx.send(InstallProgress::PhaseStarted {
-        phase: String::from("Verifying checksum"),
-    });
+    if let Some(ref checksum) = artifact.sha256 {
+        let _ = tx.send(InstallProgress::PhaseStarted {
+            phase: String::from("Verifying checksum"),
+        });
 
-    verify_checksum(&archive_path, &artifact.sha256)
-        .context("Checksum verification failed - download may be corrupted")?;
+        verify_checksum(&archive_path, checksum)
+            .context("Checksum verification failed - download may be corrupted")?;
 
-    let _ = tx.send(InstallProgress::PhaseCompleted {
-        phase: String::from("Verifying checksum"),
-    });
+        let _ = tx.send(InstallProgress::PhaseCompleted {
+            phase: String::from("Verifying checksum"),
+        });
+    }
 
     let _ = tx.send(InstallProgress::PhaseStarted {
         phase: String::from("Extracting archive"),

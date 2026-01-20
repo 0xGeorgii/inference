@@ -10,6 +10,7 @@
 //! - [`platform`] - OS and architecture detection
 //! - [`paths`] - Toolchain directory path management
 //! - [`manifest`] - Release manifest fetching and parsing
+//! - [`github`] - GitHub API client for fetching releases
 //! - [`download`] - HTTP download with progress tracking
 //! - [`verify`] - SHA256 checksum verification
 //! - [`archive`] - ZIP archive extraction utilities
@@ -18,6 +19,7 @@
 pub mod archive;
 pub mod doctor;
 pub mod download;
+pub mod github;
 pub mod manifest;
 pub mod paths;
 pub mod platform;
@@ -25,7 +27,10 @@ pub mod verify;
 
 pub use archive::extract_zip;
 pub use download::{ProgressCallback, ProgressEvent, download_file, download_file_with_callback};
-pub use manifest::{fetch_artifact, fetch_manifest};
+#[allow(unused_imports)]
+pub use github::{GitHubAsset, GitHubRelease, fetch_latest_release, fetch_release, list_releases};
+#[allow(unused_imports)]
+pub use manifest::{fetch_artifact, fetch_artifact_checksum, fetch_manifest};
 pub use paths::ToolchainPaths;
 pub use platform::Platform;
 pub use verify::verify_checksum;

@@ -81,8 +81,12 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
     println!("Downloading from {}...", artifact.url);
     download_file(&artifact.url, &archive_path, artifact.size).await?;
 
-    println!("Verifying checksum...");
-    verify_checksum(&archive_path, &artifact.sha256)?;
+    if let Some(ref checksum) = artifact.sha256 {
+        println!("Verifying checksum...");
+        verify_checksum(&archive_path, checksum)?;
+    } else {
+        println!("Skipping checksum verification (not available from GitHub API).");
+    }
 
     println!("Extracting...");
     let toolchain_dir = paths.toolchain_dir(&version);
