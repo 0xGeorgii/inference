@@ -113,15 +113,13 @@ pub async fn download_file(url: &str, dest: &Path, expected_size: u64) -> Result
 
         match download_with_progress(url, &temp_path, expected_size).await {
             Ok(()) => {
-                tokio::fs::rename(&temp_path, dest)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to rename {} to {}",
-                            temp_path.display(),
-                            dest.display()
-                        )
-                    })?;
+                tokio::fs::rename(&temp_path, dest).await.with_context(|| {
+                    format!(
+                        "Failed to rename {} to {}",
+                        temp_path.display(),
+                        dest.display()
+                    )
+                })?;
                 return Ok(());
             }
             Err(e) => {
@@ -131,7 +129,8 @@ pub async fn download_file(url: &str, dest: &Path, expected_size: u64) -> Result
         }
     }
 
-    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Download failed after {MAX_RETRIES} attempts")))
+    Err(last_error
+        .unwrap_or_else(|| anyhow::anyhow!("Download failed after {MAX_RETRIES} attempts")))
 }
 
 /// Downloads a file with progress bar display.
@@ -235,9 +234,13 @@ pub async fn download_file_simple(url: &str, dest: &Path) -> Result<()> {
         .await
         .with_context(|| format!("Failed to write to {}", temp_path.display()))?;
 
-    tokio::fs::rename(&temp_path, dest)
-        .await
-        .with_context(|| format!("Failed to rename {} to {}", temp_path.display(), dest.display()))?;
+    tokio::fs::rename(&temp_path, dest).await.with_context(|| {
+        format!(
+            "Failed to rename {} to {}",
+            temp_path.display(),
+            dest.display()
+        )
+    })?;
 
     Ok(())
 }
@@ -289,15 +292,13 @@ pub async fn download_file_with_callback(
 
         match download_with_callback(url, &temp_path, expected_size, callback.clone()).await {
             Ok(()) => {
-                tokio::fs::rename(&temp_path, dest)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to rename {} to {}",
-                            temp_path.display(),
-                            dest.display()
-                        )
-                    })?;
+                tokio::fs::rename(&temp_path, dest).await.with_context(|| {
+                    format!(
+                        "Failed to rename {} to {}",
+                        temp_path.display(),
+                        dest.display()
+                    )
+                })?;
                 callback(ProgressEvent::Completed);
                 return Ok(());
             }
@@ -308,7 +309,8 @@ pub async fn download_file_with_callback(
         }
     }
 
-    let error = last_error.unwrap_or_else(|| anyhow::anyhow!("Download failed after {MAX_RETRIES} attempts"));
+    let error = last_error
+        .unwrap_or_else(|| anyhow::anyhow!("Download failed after {MAX_RETRIES} attempts"));
     callback(ProgressEvent::Failed {
         error: error.to_string(),
     });
@@ -415,9 +417,18 @@ mod tests {
         let delay_1 = calculate_retry_delay(1);
         let delay_2 = calculate_retry_delay(2);
 
-        assert!((750..=1250).contains(&delay_0), "Attempt 0 delay should be ~1000ms with jitter");
-        assert!((1500..=2500).contains(&delay_1), "Attempt 1 delay should be ~2000ms with jitter");
-        assert!((3000..=5000).contains(&delay_2), "Attempt 2 delay should be ~4000ms with jitter");
+        assert!(
+            (750..=1250).contains(&delay_0),
+            "Attempt 0 delay should be ~1000ms with jitter"
+        );
+        assert!(
+            (1500..=2500).contains(&delay_1),
+            "Attempt 1 delay should be ~2000ms with jitter"
+        );
+        assert!(
+            (3000..=5000).contains(&delay_2),
+            "Attempt 2 delay should be ~4000ms with jitter"
+        );
     }
 
     #[test]
@@ -491,7 +502,7 @@ mod tests {
             url: "test".to_string(),
             total: 100,
         };
-        let debug_str = format!("{:?}", event);
+        let debug_str = format!("{event:?}");
         assert!(debug_str.contains("Started"));
         assert!(debug_str.contains("test"));
         assert!(debug_str.contains("100"));

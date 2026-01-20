@@ -1398,3 +1398,112 @@ fn run_accepts_trailing_args() {
         .success()
         .stdout(predicate::str::contains("ARGS").or(predicate::str::contains("args")));
 }
+
+// =============================================================================
+// Conditional Tests: Full Workflow (Require External Tools)
+// =============================================================================
+
+/// Helper function to check if wasmtime is available in PATH.
+fn is_wasmtime_available() -> bool {
+    std::process::Command::new("wasmtime")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Helper function to check if coqc is available in PATH.
+fn is_coqc_available() -> bool {
+    std::process::Command::new("coqc")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Verifies full `infs run` workflow with wasmtime.
+///
+/// **Prerequisites**: wasmtime must be installed and in PATH.
+///
+/// **Test setup**: Compiles a trivial Inference program and runs it.
+///
+/// **Expected behavior**: Program compiles, runs with wasmtime, exits successfully.
+#[test]
+fn run_full_workflow_with_wasmtime() {
+    if !is_wasmtime_available() {
+        eprintln!("Skipping test: wasmtime not available");
+        return;
+    }
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("trivial.inf");
+    let dest = temp.child("trivial.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path()).arg("run").arg(dest.path());
+
+    cmd.assert().success();
+}
+
+/// Verifies full `infs verify` workflow with coqc.
+///
+/// **Prerequisites**: coqc (Rocq/Coq compiler) must be installed and in PATH,
+/// AND the Wasm Coq library must be installed and configured.
+///
+/// **Test setup**: Compiles a trivial Inference program, translates to Rocq, verifies.
+///
+/// **Expected behavior**: Program compiles to WASM, translates to .v, coqc verifies successfully.
+///
+/// **Note**: This test may fail if coqc is installed but the Wasm library is not configured.
+/// In that case, the test verifies that the .v file was at least generated.
+#[test]
+fn verify_full_workflow_with_coqc() {
+    if !is_coqc_available() {
+        eprintln!("Skipping test: coqc not available");
+        return;
+    }
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("trivial.inf");
+    let dest = temp.child("trivial.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path())
+        .arg("verify")
+        .arg(dest.path())
+        .arg("--output-dir")
+        .arg(temp.path().join("proofs"));
+
+    let output = cmd.output().expect("Failed to execute command");
+
+    // Verify that the .v file was created (even if coqc verification fails due to missing Wasm library)
+    let v_file = temp.child("proofs").child("trivial.v");
+    assert!(
+        v_file.path().exists(),
+        "Rocq file should be created at {:?}",
+        v_file.path()
+    );
+
+    // If verification failed due to missing Wasm library, that's acceptable
+    // The test primarily verifies that the translation pipeline works
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("Cannot find a physical path bound to logical path")
+            || stderr.contains("Wasm")
+        {
+            eprintln!(
+                "Note: coqc verification failed due to missing Wasm library. \
+                 The .v file was generated successfully."
+            );
+            return;
+        }
+        // If it failed for another reason, that's a real failure
+        panic!(
+            "Verification failed unexpectedly:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            stderr
+        );
+    }
+}

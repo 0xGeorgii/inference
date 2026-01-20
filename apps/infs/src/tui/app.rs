@@ -9,27 +9,57 @@
 //!
 //! - **Normal**: Default mode, shortcuts work directly (q to quit, : to enter command)
 //! - **Command**: Input mode for entering commands with `:` prefix
+//!
+//! ## Screens
+//!
+//! - **Main**: Main menu with navigation options
+//! - **Toolchains**: List of installed toolchain versions
+//! - **Doctor**: Health check results
+//! - **Progress**: Download/operation progress display
+//!
+//! ## Features
+//!
+//! - Command history with Up/Down navigation
+//! - Tab completion for commands
+//! - Cursor movement with Left/Right arrows
+//! - Toolchain operations (Enter to set as default)
 
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-};
+use ratatui::Frame;
 
+use super::menu::Menu;
+use super::state::{DoctorState, ProgressState, Screen, ToolchainInfo, ToolchainsState};
 use super::terminal::TerminalGuard;
+use super::theme::Theme;
+use super::views::{doctor_view, main_view, progress_view, toolchain_view};
+use super::widgets::input_field::CommandHistory;
+use crate::toolchain::ToolchainPaths;
+use crate::toolchain::doctor::run_all_checks;
 
 /// Event polling timeout in milliseconds.
 const POLL_TIMEOUT_MS: u64 = 100;
 
+/// Known commands for tab completion.
+const KNOWN_COMMANDS: &[&str] = &[
+    "build",
+    "run",
+    "verify",
+    "new",
+    "install",
+    "doctor",
+    "help",
+    "version",
+    "quit",
+    "toolchains",
+    "exit",
+];
+
 /// Input mode for the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum InputMode {
+pub enum InputMode {
     /// Normal mode: shortcuts work directly.
     #[default]
     Normal,
@@ -38,72 +68,452 @@ enum InputMode {
 }
 
 /// Main application state.
-struct App {
+pub struct App {
+    /// Current screen.
+    screen: Screen,
     /// Current input mode.
     input_mode: InputMode,
     /// Command input buffer.
     command_input: String,
+    /// Cursor position in command input (byte offset).
+    cursor_pos: usize,
     /// Status message to display.
     status_message: String,
     /// Whether the application should quit.
     should_quit: bool,
+    /// Theme colors.
+    theme: Theme,
+    /// Menu state.
+    menu: Menu,
+    /// Toolchains view state.
+    toolchains_state: ToolchainsState,
+    /// Doctor view state.
+    doctor_state: DoctorState,
+    /// Progress view state.
+    progress_state: ProgressState,
+    /// Command history.
+    command_history: CommandHistory,
+    /// Command to execute after TUI exits (for commands requiring terminal access).
+    pending_command: Option<String>,
+    /// Override for executable path (used in tests).
+    exe_path_override: Option<std::path::PathBuf>,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
+            screen: Screen::Main,
             input_mode: InputMode::Normal,
             command_input: String::new(),
+            cursor_pos: 0,
             status_message: String::from("Press ':' to enter a command, 'q' to quit"),
             should_quit: false,
+            theme: Theme::detect(),
+            menu: Menu::new(),
+            toolchains_state: ToolchainsState::new(),
+            doctor_state: DoctorState::new(),
+            progress_state: ProgressState::default(),
+            command_history: CommandHistory::new(),
+            pending_command: None,
+            exe_path_override: None,
         }
     }
 }
 
 impl App {
+    /// Returns the cursor display position (characters, not bytes).
+    #[must_use]
+    pub fn cursor_display_pos(&self) -> usize {
+        self.command_input[..self.cursor_pos].chars().count()
+    }
+
+    /// Sets an override for the executable path used by `run_quick_command`.
+    ///
+    /// This is used in tests to avoid infinite recursion when `std::env::current_exe()`
+    /// returns the test binary instead of the actual `infs` binary.
+    #[cfg(test)]
+    pub fn set_exe_path_override(&mut self, path: std::path::PathBuf) {
+        self.exe_path_override = Some(path);
+    }
+
+    /// Handles a key event based on current screen and input mode.
+    fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
+            self.should_quit = true;
+            return;
+        }
+
+        match self.input_mode {
+            InputMode::Normal => self.handle_normal_key(code),
+            InputMode::Command => self.handle_command_key(code, modifiers),
+        }
+    }
+
     /// Handles a key event in normal mode.
-    fn handle_normal_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        match (code, modifiers) {
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
+    fn handle_normal_key(&mut self, code: KeyCode) {
+        match self.screen {
+            Screen::Main => self.handle_main_key(code),
+            Screen::Toolchains => self.handle_toolchains_key(code),
+            Screen::Doctor => self.handle_doctor_key(code),
+            Screen::Progress => self.handle_progress_key(code),
+        }
+    }
+
+    /// Handles key events on the main screen.
+    fn handle_main_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('q') => {
                 self.should_quit = true;
             }
-            (KeyCode::Char(':'), _) => {
+            KeyCode::Char(':') => {
                 self.input_mode = InputMode::Command;
                 self.command_input.clear();
-                self.status_message = String::from("Enter command (Esc to cancel)");
+                self.cursor_pos = 0;
+                self.command_history.reset_navigation();
+                self.status_message =
+                    String::from("Enter command (Esc to cancel, Tab to complete)");
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.menu.up();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.menu.down();
+            }
+            KeyCode::Enter => {
+                self.activate_menu_item();
+            }
+            KeyCode::Char(c) => {
+                if let Some(item) = Menu::find_by_key(c) {
+                    if item.quits {
+                        self.should_quit = true;
+                    } else if let Some(screen) = item.screen {
+                        self.navigate_to(screen);
+                    }
+                }
             }
             _ => {}
         }
     }
 
-    /// Handles a key event in command mode.
-    fn handle_command_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        match (code, modifiers) {
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                self.should_quit = true;
+    /// Handles key events on the toolchains screen.
+    fn handle_toolchains_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                self.screen = Screen::Main;
+                self.status_message = String::from("Press ':' to enter a command, 'q' to quit");
             }
-            (KeyCode::Esc, _) => {
-                self.input_mode = InputMode::Normal;
-                self.command_input.clear();
-                self.status_message = String::from("Command cancelled");
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.toolchains_state.select_previous();
             }
-            (KeyCode::Enter, _) => {
-                self.execute_command();
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.toolchains_state.select_next();
             }
-            (KeyCode::Backspace, _) => {
-                self.command_input.pop();
-            }
-            (KeyCode::Char(c), _) => {
-                self.command_input.push(c);
+            KeyCode::Enter => {
+                self.set_selected_toolchain_as_default();
             }
             _ => {}
+        }
+    }
+
+    /// Sets the currently selected toolchain as the default.
+    fn set_selected_toolchain_as_default(&mut self) {
+        let Some(toolchain) = self
+            .toolchains_state
+            .toolchains
+            .get(self.toolchains_state.selected)
+        else {
+            return;
+        };
+
+        if toolchain.is_default {
+            self.status_message = format!("{} is already the default", toolchain.version);
+            return;
+        }
+
+        let version = toolchain.version.clone();
+
+        let result = ToolchainPaths::new().and_then(|paths| {
+            paths.set_default_version(&version)?;
+            paths.update_symlinks(&version)?;
+            Ok(())
+        });
+
+        match result {
+            Ok(()) => {
+                self.status_message = format!("Set {version} as default toolchain");
+                // Reload to reflect the change
+                self.toolchains_state.loaded = false;
+                self.load_toolchain_data();
+            }
+            Err(e) => {
+                self.status_message = format!("Failed to set default: {e}");
+            }
+        }
+    }
+
+    /// Handles key events on the doctor screen.
+    fn handle_doctor_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                self.screen = Screen::Main;
+                self.status_message = String::from("Press ':' to enter a command, 'q' to quit");
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.doctor_state.select_previous();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.doctor_state.select_next();
+            }
+            KeyCode::Char('r') => {
+                self.load_doctor_data();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handles key events on the progress screen.
+    fn handle_progress_key(&mut self, code: KeyCode) {
+        if code == KeyCode::Esc && self.progress_state.completed {
+            self.screen = Screen::Main;
+            self.status_message = String::from("Press ':' to enter a command, 'q' to quit");
+        }
+    }
+
+    /// Activates the currently selected menu item.
+    fn activate_menu_item(&mut self) {
+        let item = self.menu.selected_item();
+        if item.quits {
+            self.should_quit = true;
+        } else if let Some(screen) = item.screen {
+            self.navigate_to(screen);
+        }
+    }
+
+    /// Navigates to a specific screen.
+    fn navigate_to(&mut self, screen: Screen) {
+        self.screen = screen;
+        match screen {
+            Screen::Main => {
+                self.status_message = String::from("Press ':' to enter a command, 'q' to quit");
+            }
+            Screen::Toolchains => {
+                if !self.toolchains_state.loaded {
+                    self.load_toolchain_data();
+                }
+                self.status_message = String::from("Press Enter to set as default, Esc to go back");
+            }
+            Screen::Doctor => {
+                if !self.doctor_state.loaded {
+                    self.load_doctor_data();
+                }
+                self.status_message = String::from("Press 'r' to refresh, Esc to go back");
+            }
+            Screen::Progress => {
+                self.status_message = String::from("Operation in progress...");
+            }
+        }
+    }
+
+    /// Handles a key event in command mode.
+    fn handle_command_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        match code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.command_input.clear();
+                self.cursor_pos = 0;
+                self.command_history.reset_navigation();
+                self.status_message = String::from("Command cancelled");
+            }
+            KeyCode::Enter => {
+                self.execute_command();
+            }
+            KeyCode::Backspace => {
+                self.backspace();
+            }
+            KeyCode::Delete => {
+                self.delete_char();
+            }
+            KeyCode::Left if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.move_cursor_word_left();
+            }
+            KeyCode::Left => {
+                self.move_cursor_left();
+            }
+            KeyCode::Right if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.move_cursor_word_right();
+            }
+            KeyCode::Right => {
+                self.move_cursor_right();
+            }
+            KeyCode::Home => {
+                self.cursor_pos = 0;
+            }
+            KeyCode::End => {
+                self.cursor_pos = self.command_input.len();
+            }
+            KeyCode::Up => {
+                self.history_previous();
+            }
+            KeyCode::Down => {
+                self.history_next();
+            }
+            KeyCode::Tab => {
+                self.tab_complete();
+            }
+            KeyCode::Char(c) => {
+                self.insert_char(c);
+            }
+            _ => {}
+        }
+    }
+
+    /// Inserts a character at the cursor position.
+    fn insert_char(&mut self, c: char) {
+        self.command_input.insert(self.cursor_pos, c);
+        self.cursor_pos += c.len_utf8();
+    }
+
+    /// Removes the character before the cursor.
+    fn backspace(&mut self) {
+        if self.cursor_pos > 0 {
+            // Find the start of the previous character
+            let prev_char_start = self.command_input[..self.cursor_pos]
+                .char_indices()
+                .last()
+                .map_or(0, |(idx, _)| idx);
+            self.command_input.remove(prev_char_start);
+            self.cursor_pos = prev_char_start;
+        }
+    }
+
+    /// Removes the character at the cursor position.
+    fn delete_char(&mut self) {
+        if self.cursor_pos < self.command_input.len() {
+            self.command_input.remove(self.cursor_pos);
+        }
+    }
+
+    /// Moves cursor left by one character.
+    fn move_cursor_left(&mut self) {
+        if self.cursor_pos > 0 {
+            self.cursor_pos = self.command_input[..self.cursor_pos]
+                .char_indices()
+                .last()
+                .map_or(0, |(idx, _)| idx);
+        }
+    }
+
+    /// Moves cursor right by one character.
+    #[allow(clippy::collapsible_if)]
+    fn move_cursor_right(&mut self) {
+        if self.cursor_pos < self.command_input.len() {
+            if let Some((_, c)) = self.command_input[self.cursor_pos..].char_indices().next() {
+                self.cursor_pos += c.len_utf8();
+            }
+        }
+    }
+
+    /// Moves cursor left to the start of the previous word.
+    #[allow(clippy::skip_while_next)]
+    fn move_cursor_word_left(&mut self) {
+        if self.cursor_pos == 0 {
+            return;
+        }
+
+        // Skip any whitespace before current position, then skip non-whitespace
+        // to find the start of the previous word
+        let before_cursor = &self.command_input[..self.cursor_pos];
+        let mut new_pos = before_cursor
+            .char_indices()
+            .rev()
+            .skip_while(|(_, c)| c.is_whitespace())
+            .skip_while(|(_, c)| !c.is_whitespace())
+            .next()
+            .map_or(0, |(idx, c)| idx + c.len_utf8());
+
+        // If we didn't move, try going to the start
+        if new_pos == self.cursor_pos {
+            new_pos = 0;
+        }
+
+        self.cursor_pos = new_pos;
+    }
+
+    /// Moves cursor right to the start of the next word.
+    #[allow(clippy::skip_while_next)]
+    fn move_cursor_word_right(&mut self) {
+        if self.cursor_pos >= self.command_input.len() {
+            return;
+        }
+
+        let after_cursor = &self.command_input[self.cursor_pos..];
+
+        // Skip current word (non-whitespace), then skip whitespace to get to next word
+        let skip_chars = after_cursor
+            .char_indices()
+            .skip_while(|(_, c)| !c.is_whitespace())
+            .skip_while(|(_, c)| c.is_whitespace())
+            .next()
+            .map_or(after_cursor.len(), |(idx, _)| idx);
+
+        self.cursor_pos += skip_chars;
+    }
+
+    /// Navigates to the previous command in history.
+    fn history_previous(&mut self) {
+        if let Some(cmd) = self.command_history.previous(&self.command_input) {
+            self.command_input = cmd.to_string();
+            self.cursor_pos = self.command_input.len();
+        }
+    }
+
+    /// Navigates to the next command in history.
+    fn history_next(&mut self) {
+        if let Some(cmd) = self.command_history.next() {
+            self.command_input = cmd.to_string();
+            self.cursor_pos = self.command_input.len();
+        }
+    }
+
+    /// Performs tab completion on the current input.
+    fn tab_complete(&mut self) {
+        let input = self.command_input.trim().to_lowercase();
+        if input.is_empty() {
+            return;
+        }
+
+        let matches: Vec<&&str> = KNOWN_COMMANDS
+            .iter()
+            .filter(|cmd| cmd.starts_with(&input))
+            .collect();
+
+        match matches.len() {
+            0 => {
+                // No matches
+                self.status_message = String::from("No matching command");
+            }
+            1 => {
+                // Single match, complete it
+                self.command_input = (*matches[0]).to_string();
+                self.cursor_pos = self.command_input.len();
+                self.status_message =
+                    String::from("Enter command (Esc to cancel, Tab to complete)");
+            }
+            _ => {
+                // Multiple matches, show them
+                let match_list: Vec<&str> = matches.iter().map(|s| **s).collect();
+                self.status_message = format!("Matches: {}", match_list.join(", "));
+            }
         }
     }
 
     /// Executes the current command.
     fn execute_command(&mut self) {
         let command = self.command_input.trim().to_lowercase();
+        let original_input = self.command_input.clone();
+
         self.command_input.clear();
+        self.cursor_pos = 0;
         self.input_mode = InputMode::Normal;
 
         if command.is_empty() {
@@ -111,22 +521,126 @@ impl App {
             return;
         }
 
+        // Add to history (non-empty commands only)
+        self.command_history.push(original_input);
+        self.command_history.reset_navigation();
+
         match command.as_str() {
             "q" | "quit" | "exit" => {
                 self.should_quit = true;
             }
-            "build" | "new" | "install" | "doctor" | "help" | "version" => {
-                self.status_message =
-                    format!("Running 'infs {command}'... (not implemented in TUI)");
+            "toolchains" | "t" => {
+                self.navigate_to(Screen::Toolchains);
+            }
+            "doctor" | "d" => {
+                self.navigate_to(Screen::Doctor);
+            }
+            // Commands that need terminal access - exit TUI and run
+            "build" | "new" | "install" | "run" | "verify" => {
+                self.pending_command = Some(command);
+                self.should_quit = true;
+            }
+            // Quick commands - spawn subprocess and show output
+            "help" => {
+                self.run_quick_command(&["--help"]);
+            }
+            "version" => {
+                self.run_quick_command(&["version"]);
             }
             _ => {
                 self.status_message = format!("Unknown command: {command}");
             }
         }
     }
+
+    /// Runs a quick command via subprocess and displays output in status message.
+    fn run_quick_command(&mut self, args: &[&str]) {
+        let exe = self
+            .exe_path_override
+            .clone()
+            .or_else(|| std::env::current_exe().ok())
+            .unwrap_or_else(|| std::path::PathBuf::from("infs"));
+        match std::process::Command::new(&exe).args(args).output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let combined = if stdout.is_empty() {
+                    stderr.to_string()
+                } else {
+                    stdout.to_string()
+                };
+                // Truncate for display and take first line
+                let first_line = combined.lines().next().unwrap_or("(no output)");
+                let truncated = if first_line.len() > 60 {
+                    format!("{}...", &first_line[..57])
+                } else {
+                    first_line.to_string()
+                };
+                self.status_message = truncated;
+            }
+            Err(e) => {
+                self.status_message = format!("Failed to run command: {e}");
+            }
+        }
+    }
+
+    /// Loads toolchain data from the filesystem.
+    fn load_toolchain_data(&mut self) {
+        let paths = match ToolchainPaths::new() {
+            Ok(p) => p,
+            Err(e) => {
+                self.status_message = format!("Cannot load toolchains: {e}");
+                self.toolchains_state.toolchains.clear();
+                self.toolchains_state.loaded = true;
+                return;
+            }
+        };
+
+        let default_version = match paths.get_default_version() {
+            Ok(v) => v,
+            Err(e) => {
+                self.status_message = format!("Cannot read default version: {e}");
+                None
+            }
+        };
+
+        let versions = match paths.list_installed_versions() {
+            Ok(v) => v,
+            Err(e) => {
+                self.status_message = format!("Cannot list toolchains: {e}");
+                Vec::new()
+            }
+        };
+
+        self.toolchains_state.toolchains = versions
+            .into_iter()
+            .map(|version| {
+                let is_default = default_version.as_ref() == Some(&version);
+                let metadata = paths.read_metadata(&version);
+                ToolchainInfo {
+                    version,
+                    is_default,
+                    metadata,
+                }
+            })
+            .collect();
+
+        self.toolchains_state.selected = 0;
+        self.toolchains_state.loaded = true;
+    }
+
+    /// Loads doctor check data.
+    fn load_doctor_data(&mut self) {
+        self.doctor_state.checks = run_all_checks();
+        self.doctor_state.selected = 0;
+        self.doctor_state.loaded = true;
+    }
 }
 
 /// Runs the main TUI event loop.
+///
+/// Returns `Ok(Some(command))` if the TUI exits with a pending command to execute,
+/// or `Ok(None)` if the TUI exits normally without a pending command.
 ///
 /// # Errors
 ///
@@ -134,7 +648,7 @@ impl App {
 /// - Terminal setup fails
 /// - Drawing fails
 /// - Event polling fails
-pub fn run_app(guard: &mut TerminalGuard) -> Result<()> {
+pub fn run_app(guard: &mut TerminalGuard) -> Result<Option<String>> {
     let mut app = App::default();
 
     loop {
@@ -147,10 +661,7 @@ pub fn run_app(guard: &mut TerminalGuard) -> Result<()> {
             && let Event::Key(key) = event::read().context("failed to read event")?
             && key.kind == KeyEventKind::Press
         {
-            match app.input_mode {
-                InputMode::Normal => app.handle_normal_key(key.code, key.modifiers),
-                InputMode::Command => app.handle_command_key(key.code, key.modifiers),
-            }
+            app.handle_key(key.code, key.modifiers);
         }
 
         if app.should_quit {
@@ -158,158 +669,46 @@ pub fn run_app(guard: &mut TerminalGuard) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(app.pending_command)
 }
 
-/// Renders the TUI.
+/// Renders the TUI based on current screen.
 fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();
 
-    let chunks = Layout::vertical([
-        Constraint::Length(8), // Logo and version
-        Constraint::Min(6),    // Shortcuts
-        Constraint::Length(3), // Input line
-        Constraint::Length(1), // Status
-    ])
-    .split(area);
+    match app.screen {
+        Screen::Main => {
+            main_view::render(
+                frame,
+                area,
+                &app.theme,
+                &app.menu,
+                &app.command_input,
+                app.input_mode == InputMode::Command,
+                &app.status_message,
+            );
 
-    render_header(frame, chunks[0]);
-    render_shortcuts(frame, chunks[1]);
-    render_input(app, frame, chunks[2]);
-    render_status(app, frame, chunks[3]);
-}
-
-/// Renders the header with logo and version.
-fn render_header(frame: &mut Frame, area: Rect) {
-    let logo = r"
-  _____       __
- |_   _|     / _| ___ _ __ ___ _ __   ___ ___
-   | | _ __ | |_ / _ \ '__/ _ \ '_ \ / __/ _ \
-   | || '_ \|  _|  __/ | |  __/ | | | (_|  __/
-  _|_||_| |_||_|  \___|_|  \___|_| |_|\___\___|
-";
-    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let cwd = std::env::current_dir()
-        .map_or_else(|_| String::from("<unknown>"), |p| p.display().to_string());
-
-    let header_text = vec![
-        Line::from(logo.trim_start_matches('\n')),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Version: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(&version),
-            Span::raw("  "),
-            Span::styled("Directory: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(&cwd),
-        ]),
-    ];
-
-    let header = Paragraph::new(header_text)
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::NONE));
-
-    frame.render_widget(header, area);
-}
-
-/// Renders the command shortcuts section.
-fn render_shortcuts(frame: &mut Frame, area: Rect) {
-    let shortcuts = vec![
-        Line::from(vec![
-            Span::styled(
-                "  :build    ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("Compile Inference source files"),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  :new      ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("Create a new Inference project"),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  :install  ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("Install toolchain components"),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  :doctor   ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("Check installation health"),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                "  :help     ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("Show help information"),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "  q         ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("Quit"),
-        ]),
-    ];
-
-    let shortcuts_widget =
-        Paragraph::new(shortcuts).block(Block::default().title(" Commands ").borders(Borders::ALL));
-
-    frame.render_widget(shortcuts_widget, area);
-}
-
-/// Renders the command input line.
-fn render_input(app: &App, frame: &mut Frame, area: Rect) {
-    let (input_text, cursor_style) = match app.input_mode {
-        InputMode::Normal => (
-            String::from("Press ':' to enter command mode"),
-            Style::default().fg(Color::DarkGray),
-        ),
-        InputMode::Command => (
-            format!(":{}", app.command_input),
-            Style::default().fg(Color::White),
-        ),
-    };
-
-    let input = Paragraph::new(input_text)
-        .style(cursor_style)
-        .block(Block::default().title(" Input ").borders(Borders::ALL));
-
-    frame.render_widget(input, area);
-
-    if app.input_mode == InputMode::Command {
-        #[allow(clippy::cast_possible_truncation)]
-        let cursor_x = area.x + 1 + app.command_input.len() as u16 + 1;
-        let cursor_y = area.y + 1;
-        frame.set_cursor_position((cursor_x, cursor_y));
+            // Set cursor position if in command mode
+            if app.input_mode == InputMode::Command {
+                // Cursor position: area.x + 1 (border) + 1 (colon) + cursor_display_pos
+                #[allow(clippy::cast_possible_truncation)]
+                let cursor_x = area.x + 2 + app.cursor_display_pos() as u16;
+                // The input is in the third chunk (index 2), after logo (8 lines) and menu (min 6)
+                // This is a rough estimate; proper calculation would require knowing exact layout
+                let cursor_y = area.y + area.height.saturating_sub(4);
+                frame.set_cursor_position((cursor_x, cursor_y));
+            }
+        }
+        Screen::Toolchains => {
+            toolchain_view::render(frame, area, &app.theme, &app.toolchains_state);
+        }
+        Screen::Doctor => {
+            doctor_view::render(frame, area, &app.theme, &app.doctor_state);
+        }
+        Screen::Progress => {
+            progress_view::render(frame, area, &app.theme, &app.progress_state);
+        }
     }
-}
-
-/// Renders the status message line.
-fn render_status(app: &App, frame: &mut Frame, area: Rect) {
-    let status =
-        Paragraph::new(app.status_message.as_str()).style(Style::default().fg(Color::DarkGray));
-
-    frame.render_widget(status, area);
 }
 
 #[cfg(test)]
@@ -322,26 +721,33 @@ mod tests {
         assert_eq!(app.input_mode, InputMode::Normal);
         assert!(!app.should_quit);
         assert!(app.command_input.is_empty());
+        assert_eq!(app.cursor_pos, 0);
+    }
+
+    #[test]
+    fn app_default_screen_is_main() {
+        let app = App::default();
+        assert_eq!(app.screen, Screen::Main);
     }
 
     #[test]
     fn normal_mode_q_sets_should_quit() {
         let mut app = App::default();
-        app.handle_normal_key(KeyCode::Char('q'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
         assert!(app.should_quit);
     }
 
     #[test]
     fn normal_mode_ctrl_c_sets_should_quit() {
         let mut app = App::default();
-        app.handle_normal_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert!(app.should_quit);
     }
 
     #[test]
     fn normal_mode_colon_enters_command_mode() {
         let mut app = App::default();
-        app.handle_normal_key(KeyCode::Char(':'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char(':'), KeyModifiers::NONE);
         assert_eq!(app.input_mode, InputMode::Command);
     }
 
@@ -350,13 +756,15 @@ mod tests {
         let mut app = App {
             input_mode: InputMode::Command,
             command_input: String::from("test"),
+            cursor_pos: 4,
             ..App::default()
         };
 
-        app.handle_command_key(KeyCode::Esc, KeyModifiers::NONE);
+        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
         assert_eq!(app.input_mode, InputMode::Normal);
         assert!(app.command_input.is_empty());
+        assert_eq!(app.cursor_pos, 0);
     }
 
     #[test]
@@ -366,10 +774,11 @@ mod tests {
             ..App::default()
         };
 
-        app.handle_command_key(KeyCode::Char('h'), KeyModifiers::NONE);
-        app.handle_command_key(KeyCode::Char('i'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('h'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
 
         assert_eq!(app.command_input, "hi");
+        assert_eq!(app.cursor_pos, 2);
     }
 
     #[test]
@@ -377,43 +786,230 @@ mod tests {
         let mut app = App {
             input_mode: InputMode::Command,
             command_input: String::from("hi"),
+            cursor_pos: 2,
             ..App::default()
         };
 
-        app.handle_command_key(KeyCode::Backspace, KeyModifiers::NONE);
+        app.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
 
         assert_eq!(app.command_input, "h");
+        assert_eq!(app.cursor_pos, 1);
     }
 
     #[test]
-    fn execute_quit_command_sets_should_quit() {
+    fn cursor_movement_left_right() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("abc"),
+            cursor_pos: 3,
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(app.cursor_pos, 2);
+
+        app.handle_key(KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(app.cursor_pos, 1);
+
+        app.handle_key(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(app.cursor_pos, 2);
+    }
+
+    #[test]
+    fn cursor_movement_home_end() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("abc"),
+            cursor_pos: 1,
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Home, KeyModifiers::NONE);
+        assert_eq!(app.cursor_pos, 0);
+
+        app.handle_key(KeyCode::End, KeyModifiers::NONE);
+        assert_eq!(app.cursor_pos, 3);
+    }
+
+    #[test]
+    fn cursor_movement_word_left() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("one two three"),
+            cursor_pos: 13, // end of "three"
+            ..App::default()
+        };
+
+        // Move to start of "three"
+        app.handle_key(KeyCode::Left, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 8);
+
+        // Move to start of "two"
+        app.handle_key(KeyCode::Left, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 4);
+
+        // Move to start of "one"
+        app.handle_key(KeyCode::Left, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 0);
+
+        // At start, should stay at 0
+        app.handle_key(KeyCode::Left, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 0);
+    }
+
+    #[test]
+    fn cursor_movement_word_right() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("one two three"),
+            cursor_pos: 0,
+            ..App::default()
+        };
+
+        // Move to start of "two"
+        app.handle_key(KeyCode::Right, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 4);
+
+        // Move to start of "three"
+        app.handle_key(KeyCode::Right, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 8);
+
+        // Move to end
+        app.handle_key(KeyCode::Right, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 13);
+
+        // At end, should stay at end
+        app.handle_key(KeyCode::Right, KeyModifiers::CONTROL);
+        assert_eq!(app.cursor_pos, 13);
+    }
+
+    #[test]
+    fn insert_at_cursor_position() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("ac"),
+            cursor_pos: 1,
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
+        assert_eq!(app.command_input, "abc");
+        assert_eq!(app.cursor_pos, 2);
+    }
+
+    #[test]
+    fn delete_at_cursor_position() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("abc"),
+            cursor_pos: 1,
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Delete, KeyModifiers::NONE);
+        assert_eq!(app.command_input, "ac");
+        assert_eq!(app.cursor_pos, 1);
+    }
+
+    #[test]
+    fn execute_quit_command_sets_should_quit_without_pending() {
         let mut app = App {
             command_input: String::from("quit"),
+            cursor_pos: 4,
             ..App::default()
         };
 
         app.execute_command();
 
         assert!(app.should_quit);
+        assert!(app.pending_command.is_none());
     }
 
     #[test]
-    fn execute_known_command_shows_message() {
+    fn execute_terminal_command_sets_pending_and_quits() {
         let mut app = App {
             command_input: String::from("build"),
+            cursor_pos: 5,
             ..App::default()
         };
 
         app.execute_command();
 
+        assert!(app.should_quit);
+        assert_eq!(app.pending_command, Some(String::from("build")));
+    }
+
+    #[test]
+    fn execute_run_command_sets_pending_and_quits() {
+        let mut app = App {
+            command_input: String::from("run"),
+            cursor_pos: 3,
+            ..App::default()
+        };
+
+        app.execute_command();
+
+        assert!(app.should_quit);
+        assert_eq!(app.pending_command, Some(String::from("run")));
+    }
+
+    #[test]
+    fn execute_verify_command_sets_pending_and_quits() {
+        let mut app = App {
+            command_input: String::from("verify"),
+            cursor_pos: 6,
+            ..App::default()
+        };
+
+        app.execute_command();
+
+        assert!(app.should_quit);
+        assert_eq!(app.pending_command, Some(String::from("verify")));
+    }
+
+    #[test]
+    fn execute_help_command_stays_in_tui() {
+        let mut app = App {
+            command_input: String::from("help"),
+            cursor_pos: 4,
+            ..App::default()
+        };
+        // Use a simple command that exits successfully to avoid infinite recursion
+        // when std::env::current_exe() returns the test binary
+        app.set_exe_path_override(std::path::PathBuf::from("/bin/true"));
+
+        app.execute_command();
+
         assert!(!app.should_quit);
-        assert!(app.status_message.contains("build"));
+        assert!(app.pending_command.is_none());
+        // Status message should be set (either output or "(no output)" from /bin/true)
+        assert!(!app.status_message.is_empty());
+    }
+
+    #[test]
+    fn execute_version_command_stays_in_tui() {
+        let mut app = App {
+            command_input: String::from("version"),
+            cursor_pos: 7,
+            ..App::default()
+        };
+        // Use a simple command that exits successfully to avoid infinite recursion
+        // when std::env::current_exe() returns the test binary
+        app.set_exe_path_override(std::path::PathBuf::from("/bin/true"));
+
+        app.execute_command();
+
+        assert!(!app.should_quit);
+        assert!(app.pending_command.is_none());
+        // Status message should be set (either output or "(no output)" from /bin/true)
+        assert!(!app.status_message.is_empty());
     }
 
     #[test]
     fn execute_unknown_command_shows_error() {
         let mut app = App {
             command_input: String::from("foobar"),
+            cursor_pos: 6,
             ..App::default()
         };
 
@@ -427,6 +1023,7 @@ mod tests {
     fn execute_empty_command_shows_message() {
         let mut app = App {
             command_input: String::from("   "),
+            cursor_pos: 3,
             ..App::default()
         };
 
@@ -434,5 +1031,223 @@ mod tests {
 
         assert!(!app.should_quit);
         assert!(app.status_message.contains("No command"));
+    }
+
+    #[test]
+    fn navigate_to_toolchains_changes_screen() {
+        let mut app = App::default();
+        app.navigate_to(Screen::Toolchains);
+        assert_eq!(app.screen, Screen::Toolchains);
+    }
+
+    #[test]
+    fn navigate_to_doctor_changes_screen() {
+        let mut app = App::default();
+        app.navigate_to(Screen::Doctor);
+        assert_eq!(app.screen, Screen::Doctor);
+    }
+
+    #[test]
+    fn shortcut_t_navigates_to_toolchains() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('t'), KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Toolchains);
+    }
+
+    #[test]
+    fn shortcut_d_navigates_to_doctor() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('d'), KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Doctor);
+    }
+
+    #[test]
+    fn esc_from_toolchains_returns_to_main() {
+        let mut app = App {
+            screen: Screen::Toolchains,
+            ..App::default()
+        };
+        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn esc_from_doctor_returns_to_main() {
+        let mut app = App {
+            screen: Screen::Doctor,
+            ..App::default()
+        };
+        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn menu_navigation_with_arrows() {
+        let mut app = App::default();
+        assert_eq!(app.menu.selected(), 0);
+
+        app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.menu.selected(), 1);
+
+        app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(app.menu.selected(), 0);
+    }
+
+    #[test]
+    fn menu_navigation_with_j_k() {
+        let mut app = App::default();
+        assert_eq!(app.menu.selected(), 0);
+
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.menu.selected(), 1);
+
+        app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(app.menu.selected(), 0);
+    }
+
+    #[test]
+    fn enter_activates_menu_item() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Toolchains);
+    }
+
+    #[test]
+    fn command_doctor_navigates_to_doctor() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("doctor"),
+            cursor_pos: 6,
+            ..App::default()
+        };
+        app.execute_command();
+        assert_eq!(app.screen, Screen::Doctor);
+    }
+
+    #[test]
+    fn command_toolchains_navigates_to_toolchains() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("toolchains"),
+            cursor_pos: 10,
+            ..App::default()
+        };
+        app.execute_command();
+        assert_eq!(app.screen, Screen::Toolchains);
+    }
+
+    #[test]
+    fn tab_completion_single_match() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("bui"),
+            cursor_pos: 3,
+            ..App::default()
+        };
+
+        app.tab_complete();
+        assert_eq!(app.command_input, "build");
+        assert_eq!(app.cursor_pos, 5);
+    }
+
+    #[test]
+    fn tab_completion_multiple_matches() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("ver"),
+            cursor_pos: 3,
+            ..App::default()
+        };
+
+        app.tab_complete();
+        // Should show matches in status message
+        assert!(app.status_message.contains("verify"));
+        assert!(app.status_message.contains("version"));
+    }
+
+    #[test]
+    fn tab_completion_no_match() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            command_input: String::from("xyz"),
+            cursor_pos: 3,
+            ..App::default()
+        };
+
+        app.tab_complete();
+        assert!(app.status_message.contains("No matching"));
+    }
+
+    #[test]
+    fn command_history_up_down() {
+        let mut app = App {
+            input_mode: InputMode::Command,
+            ..App::default()
+        };
+
+        // Execute some commands
+        app.command_input = String::from("build");
+        app.cursor_pos = 5;
+        app.execute_command();
+
+        app.input_mode = InputMode::Command;
+        app.command_input = String::from("doctor");
+        app.cursor_pos = 6;
+        app.execute_command();
+
+        // Now enter command mode and navigate history
+        app.input_mode = InputMode::Command;
+        app.command_input.clear();
+        app.cursor_pos = 0;
+
+        app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(app.command_input, "doctor");
+
+        app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(app.command_input, "build");
+
+        app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.command_input, "doctor");
+    }
+
+    #[test]
+    fn esc_from_progress_when_completed() {
+        let mut app = App {
+            screen: Screen::Progress,
+            progress_state: ProgressState::new("Test"),
+            ..App::default()
+        };
+        app.progress_state.complete();
+
+        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn esc_from_progress_when_not_completed() {
+        let mut app = App {
+            screen: Screen::Progress,
+            progress_state: ProgressState::new("Test"),
+            ..App::default()
+        };
+        // Not completed, Esc should not change screen
+
+        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Progress);
+    }
+
+    #[test]
+    fn cursor_display_pos_matches_chars() {
+        let mut app = App {
+            command_input: String::from("hello"),
+            cursor_pos: 5,
+            ..App::default()
+        };
+        assert_eq!(app.cursor_display_pos(), 5);
+
+        // With unicode
+        app.command_input = String::from("h\u{00e9}llo"); // e with accent
+        app.cursor_pos = 6; // After the accented e (which is 2 bytes)
+        assert_eq!(app.cursor_display_pos(), 5); // 5 characters
     }
 }
