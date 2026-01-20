@@ -165,7 +165,10 @@ use std::{
 /// - Calls `process::exit(1)` explicitly on errors (no panics)
 /// - Reads entire source file into memory (limitation: no streaming)
 /// - Phase execution is sequential (no parallelization)
+#[allow(clippy::too_many_lines)]
 fn main() {
+    eprintln!("Warning: 'infc' is deprecated. Please use 'infs build' instead.");
+
     let args = Cli::parse();
     if !args.path.exists() {
         eprintln!("Error: path not found");
@@ -182,7 +185,13 @@ fn main() {
         process::exit(1);
     }
 
-    let source_code = fs::read_to_string(&args.path).expect("Error reading source file");
+    let source_code = match fs::read_to_string(&args.path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("Error reading source file: {e}");
+            process::exit(1);
+        }
+    };
     let mut t_ast = None;
     if need_codegen || need_analyze || need_parse {
         match parse(source_code.as_str()) {
@@ -198,7 +207,8 @@ fn main() {
     }
 
     let Some(arena) = t_ast else {
-        unreachable!("Phase validation guarantees parse ran when required");
+        eprintln!("Internal error: parse phase did not produce AST");
+        process::exit(1);
     };
 
     let mut typed_context = None;
@@ -220,7 +230,11 @@ fn main() {
         }
     }
     if need_codegen {
-        let wasm = match codegen(&typed_context.unwrap()) {
+        let Some(tctx) = typed_context else {
+            eprintln!("Internal error: type check phase did not produce typed context");
+            process::exit(1);
+        };
+        let wasm = match codegen(&tctx) {
             Ok(w) => w,
             Err(e) => {
                 eprintln!("Codegen failed: {e}");

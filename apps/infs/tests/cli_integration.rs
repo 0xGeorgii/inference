@@ -28,6 +28,19 @@
 //! 11. **Doctor command**: Health checks execution, output verification
 //! 12. **Self update command**: Help display, subcommand validation, error handling
 //!
+//! ### Phase 3: Project Scaffolding
+//!
+//! 13. **New command**: Project creation, validation, directory structure
+//! 14. **Init command**: In-place initialization, manifest generation
+//!
+//! ### Phase 4-5: Verify Command
+//!
+//! 15. **Verify command**: Help display, path validation, coqc availability check
+//!
+//! ### Phase 6: Run Command
+//!
+//! 16. **Run command**: Help display, path validation, wasmtime availability check
+//!
 //! ## Test Infrastructure
 //!
 //! - Uses `assert_cmd` for spawning and asserting on command execution
@@ -1047,4 +1060,341 @@ fn init_uses_directory_name_as_default() {
         manifest_content.contains("name = \"my_default_name_project\""),
         "Manifest should contain the directory name as project name"
     );
+}
+
+// -----------------------------------------------------------------------------
+// File Permission and Error Handling Tests
+// -----------------------------------------------------------------------------
+
+/// Verifies that file permissions are handled correctly for created project files.
+///
+/// **Test setup**: Creates a project and checks file permissions.
+///
+/// **Expected behavior**: All generated files should be readable.
+#[test]
+fn new_creates_files_with_correct_permissions() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path())
+        .arg("new")
+        .arg("permission_test_project")
+        .arg("--no-git");
+
+    cmd.assert().success();
+
+    let project_dir = temp.child("permission_test_project");
+
+    // Verify all files are readable
+    let manifest = project_dir.child("Inference.toml");
+    assert!(
+        std::fs::read_to_string(manifest.path()).is_ok(),
+        "Inference.toml should be readable"
+    );
+
+    let main_inf = project_dir.child("src").child("main.inf");
+    assert!(
+        std::fs::read_to_string(main_inf.path()).is_ok(),
+        "src/main.inf should be readable"
+    );
+
+    let gitignore = project_dir.child(".gitignore");
+    assert!(
+        std::fs::read_to_string(gitignore.path()).is_ok(),
+        ".gitignore should be readable"
+    );
+}
+
+/// Verifies that `infs new` handles permission denied errors gracefully.
+///
+/// **Test setup**: On Unix, creates a read-only directory where project creation should fail.
+/// Uses an explicit path argument to create the project in the read-only directory.
+///
+/// **Expected behavior**: Exit with non-zero code and display a meaningful error message.
+#[test]
+#[cfg(unix)]
+fn new_handles_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let readonly_dir = temp.child("readonly_parent");
+    std::fs::create_dir_all(readonly_dir.path()).expect("Failed to create directory");
+
+    // Make the directory read-only (no write permission)
+    let mut perms = std::fs::metadata(readonly_dir.path())
+        .expect("Failed to get metadata")
+        .permissions();
+    perms.set_mode(0o555);
+    std::fs::set_permissions(readonly_dir.path(), perms).expect("Failed to set permissions");
+
+    // Run from temp directory but try to create project in the read-only subdirectory
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path())
+        .arg("new")
+        .arg("should_fail_project")
+        .arg(readonly_dir.path())
+        .arg("--no-git");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("Failed")
+            .or(predicate::str::contains("Permission denied"))
+            .or(predicate::str::contains("permission")),
+    );
+
+    // Restore permissions for cleanup
+    let mut perms = std::fs::metadata(readonly_dir.path())
+        .expect("Failed to get metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(readonly_dir.path(), perms).expect("Failed to restore permissions");
+}
+
+/// Verifies that `infs init` handles permission denied errors gracefully.
+///
+/// **Test setup**: On Unix, we test that init properly reports errors when it cannot
+/// write files. We do this by making the target directory read-only after creation.
+///
+/// **Expected behavior**: Exit with non-zero code and display a meaningful error message.
+#[test]
+#[cfg(unix)]
+fn init_handles_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let work_dir = temp.child("work_dir");
+    std::fs::create_dir_all(work_dir.path()).expect("Failed to create directory");
+
+    // Create a read-only subdirectory that we'll try to init
+    let readonly_dir = work_dir.child("readonly_init_dir");
+    std::fs::create_dir_all(readonly_dir.path()).expect("Failed to create directory");
+
+    // Make the directory read-only (no write permission) - execute bit needed to cd into it
+    let mut perms = std::fs::metadata(readonly_dir.path())
+        .expect("Failed to get metadata")
+        .permissions();
+    perms.set_mode(0o555);
+    std::fs::set_permissions(readonly_dir.path(), perms).expect("Failed to set permissions");
+
+    // Run from work_dir but use -C or pass path to init in the readonly dir
+    // Note: infs init takes name as positional arg, not path, so we need to cd into it
+    // The issue is that cd into a read-only dir works, but writing fails
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(readonly_dir.path())
+        .arg("init")
+        .arg("should_fail");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("Failed")
+            .or(predicate::str::contains("Permission denied"))
+            .or(predicate::str::contains("permission")),
+    );
+
+    // Restore permissions for cleanup
+    let mut perms = std::fs::metadata(readonly_dir.path())
+        .expect("Failed to get metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(readonly_dir.path(), perms).expect("Failed to restore permissions");
+}
+
+// =============================================================================
+// Phase 5: Verify Command Tests
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Verify Command Tests
+// -----------------------------------------------------------------------------
+
+/// Verifies that `infs verify --help` displays the available options.
+///
+/// **Expected behavior**: Exit with code 0 and show path argument and options.
+#[test]
+fn verify_help_shows_options() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("verify").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("PATH").or(predicate::str::contains("path")))
+        .stdout(predicate::str::contains("--output-dir"))
+        .stdout(predicate::str::contains("--skip-compile"));
+}
+
+/// Verifies that `infs verify` requires a path argument.
+///
+/// **Expected behavior**: Exit with non-zero code when no path is provided.
+#[test]
+fn verify_requires_path_argument() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("verify");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("PATH").or(predicate::str::contains("required")));
+}
+
+/// Verifies that `infs verify` fails when source file doesn't exist.
+///
+/// **Expected behavior**: Exit with non-zero code and print "Path not found".
+#[test]
+fn verify_fails_when_file_missing() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("verify").arg("this-file-does-not-exist.inf");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("Path not found").or(predicate::str::contains("path not found")),
+    );
+}
+
+/// Verifies that `infs verify` shows a helpful error when coqc is not available.
+///
+/// **Test setup**: Uses PATH override to ensure coqc is not found.
+///
+/// **Expected behavior**: Exit with non-zero code and display installation instructions.
+#[test]
+fn verify_shows_coqc_not_found_message() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("trivial.inf");
+    let dest = temp.child("trivial.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path())
+        .env("PATH", "")
+        .arg("verify")
+        .arg(dest.path());
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("coqc not found"))
+        .stderr(predicate::str::contains("apt install coq").or(predicate::str::contains("brew install coq")));
+}
+
+/// Verifies that `infs verify` creates the proofs directory by default.
+///
+/// **Test setup**: Checks help output for default value.
+///
+/// **Expected behavior**: The help message shows "proofs" as default.
+#[test]
+fn verify_uses_default_output_dir() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("verify").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("proofs"));
+}
+
+/// Verifies that `infs verify --output-dir` accepts a custom output directory.
+///
+/// **Expected behavior**: The help shows the output-dir option.
+#[test]
+fn verify_accepts_custom_output_dir() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("verify").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("output-dir"));
+}
+
+/// Verifies that `infs verify --skip-compile` flag is recognized.
+///
+/// **Expected behavior**: The help shows the skip-compile option.
+#[test]
+fn verify_accepts_skip_compile_flag() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("verify").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("skip-compile"));
+}
+
+// =============================================================================
+// Phase 6: Run Command Tests
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Run Command Tests
+// -----------------------------------------------------------------------------
+
+/// Verifies that `infs run --help` displays the available options.
+///
+/// **Expected behavior**: Exit with code 0 and show path argument and usage.
+#[test]
+fn run_help_shows_options() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("run").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("PATH").or(predicate::str::contains("path")))
+        .stdout(predicate::str::contains("Run").or(predicate::str::contains("run")));
+}
+
+/// Verifies that `infs run` requires a path argument.
+///
+/// **Expected behavior**: Exit with non-zero code when no path is provided.
+#[test]
+fn run_requires_path_argument() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("run");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("PATH").or(predicate::str::contains("required")));
+}
+
+/// Verifies that `infs run` fails when source file doesn't exist.
+///
+/// **Expected behavior**: Exit with non-zero code and print "Path not found".
+#[test]
+fn run_fails_when_file_missing() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("run").arg("this-file-does-not-exist.inf");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("Path not found").or(predicate::str::contains("path not found")),
+    );
+}
+
+/// Verifies that `infs run` shows a helpful error when wasmtime is not available.
+///
+/// **Test setup**: Uses PATH override to ensure wasmtime is not found.
+///
+/// **Expected behavior**: Exit with non-zero code and display installation instructions.
+#[test]
+fn run_shows_wasmtime_not_found_message() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("trivial.inf");
+    let dest = temp.child("trivial.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path())
+        .env("PATH", "")
+        .arg("run")
+        .arg(dest.path());
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("wasmtime not found"))
+        .stderr(
+            predicate::str::contains("wasmtime.dev")
+                .or(predicate::str::contains("brew install wasmtime")),
+        );
+}
+
+/// Verifies that `infs run` accepts trailing arguments for the WASM program.
+///
+/// **Expected behavior**: The help shows that arguments can be passed to the WASM program.
+#[test]
+fn run_accepts_trailing_args() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("run").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("ARGS").or(predicate::str::contains("args")));
 }

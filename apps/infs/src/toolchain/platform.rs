@@ -74,7 +74,7 @@ impl Platform {
     /// Returns the platform identifier string used in manifest URLs and file names.
     ///
     /// These strings match the naming convention used in the release manifest.
-    #[must_use]
+    #[must_use = "returns the platform string without side effects"]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::LinuxX64 => "linux-x64",
@@ -86,7 +86,7 @@ impl Platform {
     /// Returns the executable file extension for this platform.
     ///
     /// Returns `.exe` on Windows, empty string on Unix platforms.
-    #[must_use]
+    #[must_use = "returns the extension string without side effects"]
     pub fn executable_extension(self) -> &'static str {
         match self {
             Self::WindowsX64 => ".exe",
@@ -95,7 +95,7 @@ impl Platform {
     }
 
     /// Returns whether this platform is Windows.
-    #[must_use]
+    #[must_use = "returns platform check result without side effects"]
     pub fn is_windows(self) -> bool {
         matches!(self, Self::WindowsX64)
     }
