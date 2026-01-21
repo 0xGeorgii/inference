@@ -106,6 +106,26 @@ fn codegen_test_file(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
+/// Returns a minimal PATH that excludes tools like wasmtime/coqc but preserves
+/// essential system directories needed for the process to run.
+///
+/// On Windows, setting PATH="" prevents the process from finding essential DLLs
+/// (like MinGW runtime when compiled with GNU toolchain), causing `STATUS_DLL_NOT_FOUND`.
+/// This function returns the Windows system directory on Windows, and empty string
+/// on other platforms.
+fn minimal_path_without_tools() -> String {
+    #[cfg(windows)]
+    {
+        std::env::var("SystemRoot")
+            .map(|root| format!("{root}\\System32"))
+            .unwrap_or_else(|_| String::from("C:\\Windows\\System32"))
+    }
+    #[cfg(not(windows))]
+    {
+        String::new()
+    }
+}
+
 // =============================================================================
 // Error Path Tests
 // =============================================================================
@@ -1260,14 +1280,17 @@ fn verify_shows_coqc_not_found_message() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.current_dir(temp.path())
-        .env("PATH", "")
+        .env("PATH", minimal_path_without_tools())
         .arg("verify")
         .arg(dest.path());
 
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("coqc not found"))
-        .stderr(predicate::str::contains("apt install coq").or(predicate::str::contains("brew install coq")));
+        .stderr(
+            predicate::str::contains("apt install coq")
+                .or(predicate::str::contains("brew install coq")),
+        );
 }
 
 /// Verifies that `infs verify` creates the proofs directory by default.
@@ -1373,7 +1396,7 @@ fn run_shows_wasmtime_not_found_message() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.current_dir(temp.path())
-        .env("PATH", "")
+        .env("PATH", minimal_path_without_tools())
         .arg("run")
         .arg(dest.path());
 
