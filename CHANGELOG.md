@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Build
+
+- Add `infs` binaries to release artifacts for all platforms (Linux x64, Windows x64, macOS ARM64)
+- Update release manifest to schema version 2 with separate `infc` and `infs` tool entries
+
 ### Editor Support
 
 - Add VS Code extension with syntax highlighting for Inference language ([#94])
