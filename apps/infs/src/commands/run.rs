@@ -7,10 +7,11 @@
 //!
 //! ## Execution Pipeline
 //!
-//! 1. **Check** - Verify wasmtime is available in PATH
-//! 2. **Compile** - Parse, type check, analyze, and generate WASM
-//! 3. **Write** - Persist WASM binary to ./out/ directory
-//! 4. **Execute** - Run WASM with wasmtime, passing arguments
+//! 1. **Validate** - Check source file exists
+//! 2. **Check** - Verify wasmtime is available in PATH
+//! 3. **Compile** - Parse, type check, analyze, and generate WASM
+//! 4. **Write** - Persist WASM binary to ./out/ directory
+//! 5. **Execute** - Run WASM with wasmtime, passing arguments
 //!
 //! ## Prerequisites
 //!
@@ -42,8 +43,8 @@ pub struct RunArgs {
 ///
 /// ## Execution Flow
 ///
-/// 1. Checks for wasmtime availability
-/// 2. Validates source file exists
+/// 1. Validates source file exists
+/// 2. Checks for wasmtime availability
 /// 3. Compiles source to WASM
 /// 4. Writes WASM to ./out/ directory
 /// 5. Executes WASM with wasmtime
@@ -58,18 +59,18 @@ pub struct RunArgs {
 /// ## Errors
 ///
 /// Returns an error if:
-/// - wasmtime is not found in PATH
 /// - The source file does not exist
+/// - wasmtime is not found in PATH
 /// - Any compilation phase fails
 /// - WASM file writing fails
 /// - wasmtime execution fails to start
 /// - wasmtime exits with non-zero code (as `InfsError::ProcessExitCode`)
 pub fn execute(args: &RunArgs) -> Result<()> {
-    check_wasmtime_availability()?;
-
     if !args.path.exists() {
         bail!("Path not found: {}", args.path.display());
     }
+
+    check_wasmtime_availability()?;
 
     let wasm = compile_to_wasm(&args.path)?;
 

@@ -43,8 +43,8 @@ pub struct VerifyArgs {
 ///
 /// ## Execution Flow
 ///
-/// 1. Checks for coqc availability
-/// 2. Validates source file exists
+/// 1. Validates source file exists
+/// 2. Checks for coqc availability
 /// 3. Compiles source to WASM (unless skip-compile is set and .v is fresh)
 /// 4. Translates WASM to Rocq (.v)
 /// 5. Runs coqc verification
@@ -53,16 +53,16 @@ pub struct VerifyArgs {
 /// ## Errors
 ///
 /// Returns an error if:
-/// - coqc is not found in PATH
 /// - The source file does not exist
+/// - coqc is not found in PATH
 /// - Any compilation phase fails
 /// - coqc verification fails
 pub fn execute(args: &VerifyArgs) -> Result<()> {
-    check_coqc_availability()?;
-
     if !args.path.exists() {
         bail!("Path not found: {}", args.path.display());
     }
+
+    check_coqc_availability()?;
 
     let source_fname = args
         .path
