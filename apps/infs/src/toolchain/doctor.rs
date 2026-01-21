@@ -86,6 +86,7 @@ impl DoctorCheck {
 /// This function aggregates all health checks into a single vector.
 /// On Linux, it additionally includes the `libLLVM` check.
 #[must_use]
+#[allow(unused_mut)]
 pub fn run_all_checks() -> Vec<DoctorCheck> {
     let mut checks = vec![
         check_infs_binary(),
@@ -154,10 +155,7 @@ pub fn check_toolchain_directory() -> DoctorCheck {
                 )
             }
         }
-        Err(e) => DoctorCheck::error(
-            "Toolchain directory",
-            format!("Cannot determine path: {e}"),
-        ),
+        Err(e) => DoctorCheck::error("Toolchain directory", format!("Cannot determine path: {e}")),
     }
 }
 
