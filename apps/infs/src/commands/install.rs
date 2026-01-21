@@ -13,14 +13,14 @@
 //! infs install latest   # Explicitly install latest stable
 //! ```
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
 use std::path::Path;
 
+use crate::toolchain::paths::ToolchainMetadata;
 use crate::toolchain::{
     Platform, ToolchainPaths, download_file, extract_zip, fetch_artifact, verify_checksum,
 };
-use crate::toolchain::paths::ToolchainMetadata;
 
 /// Arguments for the install command.
 #[derive(Args)]
@@ -110,9 +110,7 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
     println!("Toolchain {version} installed successfully.");
 
     if current_default.is_some() && current_default.as_deref() != Some(&version) {
-        println!(
-            "Run 'infs default {version}' to make it the default toolchain."
-        );
+        println!("Run 'infs default {version}' to make it the default toolchain.");
     }
 
     std::fs::remove_file(&archive_path).ok();
@@ -123,6 +121,7 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
 /// Sets executable permissions on binary files (Unix only).
 #[cfg(unix)]
 fn set_executable_permissions(dir: &Path) -> Result<()> {
+    use anyhow::Context;
     use std::os::unix::fs::PermissionsExt;
 
     let bin_dir = dir.join("bin");
@@ -151,6 +150,7 @@ fn set_executable_permissions(dir: &Path) -> Result<()> {
 
 /// Sets executable permissions (no-op on Windows).
 #[cfg(windows)]
+#[allow(clippy::unnecessary_wraps)]
 fn set_executable_permissions(_dir: &Path) -> Result<()> {
     Ok(())
 }

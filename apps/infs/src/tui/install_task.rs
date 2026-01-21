@@ -215,6 +215,7 @@ fn set_executable_permissions(dir: &Path) -> Result<()> {
 
 /// Sets executable permissions (no-op on Windows).
 #[cfg(windows)]
+#[allow(clippy::unnecessary_wraps)]
 fn set_executable_permissions(_dir: &Path) -> Result<()> {
     Ok(())
 }
