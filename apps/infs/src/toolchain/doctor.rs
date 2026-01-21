@@ -85,22 +85,29 @@ impl DoctorCheck {
 ///
 /// This function aggregates all health checks into a single vector.
 /// On Linux, it additionally includes the `libLLVM` check.
-#[must_use]
-#[allow(unused_mut)]
+#[cfg(not(target_os = "linux"))]
 pub fn run_all_checks() -> Vec<DoctorCheck> {
-    let mut checks = vec![
+    vec![
         check_infs_binary(),
         check_platform(),
         check_toolchain_directory(),
         check_default_toolchain(),
         check_inf_llc(),
         check_rust_lld(),
-    ];
+    ]
+}
 
-    #[cfg(target_os = "linux")]
-    checks.push(check_libllvm());
-
-    checks
+#[cfg(target_os = "linux")]
+pub fn run_all_checks() -> Vec<DoctorCheck> {
+    vec![
+        check_infs_binary(),
+        check_platform(),
+        check_toolchain_directory(),
+        check_default_toolchain(),
+        check_inf_llc(),
+        check_rust_lld(),
+        check_libllvm(),
+    ]
 }
 
 /// Checks if the infs binary is accessible in PATH.
