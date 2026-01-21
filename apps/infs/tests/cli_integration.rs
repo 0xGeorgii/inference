@@ -106,23 +106,49 @@ fn codegen_test_file(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-/// Returns a minimal PATH that excludes tools like wasmtime/coqc but preserves
-/// essential system directories needed for the process to run.
+/// Returns a PATH that excludes wasmtime and coqc but preserves essential
+/// system directories and runtime DLLs needed for the process to run.
 ///
 /// On Windows, setting PATH="" prevents the process from finding essential DLLs
 /// (like MinGW runtime when compiled with GNU toolchain), causing `STATUS_DLL_NOT_FOUND`.
-/// This function returns the Windows system directory on Windows, and empty string
-/// on other platforms.
-fn minimal_path_without_tools() -> String {
-    #[cfg(windows)]
-    {
-        std::env::var("SystemRoot")
-            .map(|root| format!("{root}\\System32"))
-            .unwrap_or_else(|_| String::from("C:\\Windows\\System32"))
-    }
+/// This function uses `which` to find the exact directories containing the tools
+/// and excludes only those, preserving all other paths.
+///
+/// On non-Windows platforms, we can safely use an empty PATH since there are no
+/// DLL loading issues.
+fn path_without_tools() -> String {
+    // On non-Windows, empty PATH is safe and ensures tools aren't found
     #[cfg(not(windows))]
     {
         String::new()
+    }
+
+    // On Windows, we must preserve system directories and MinGW runtime DLLs
+    #[cfg(windows)]
+    {
+        use std::path::PathBuf;
+
+        let current_path = std::env::var("PATH").unwrap_or_default();
+
+        // Find directories containing the tools we want to exclude
+        let tool_dirs: Vec<PathBuf> = ["wasmtime", "coqc"]
+            .iter()
+            .filter_map(|tool| {
+                which::which(tool)
+                    .ok()
+                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            })
+            .collect();
+
+        current_path
+            .split(';')
+            .filter(|dir| {
+                let dir_path = std::path::Path::new(dir);
+                // Keep directories that don't contain any of the tools
+                !tool_dirs.iter().any(|tool_dir| dir_path == tool_dir)
+            })
+            .collect::<Vec<_>>()
+            .join(";")
     }
 }
 
@@ -1280,7 +1306,7 @@ fn verify_shows_coqc_not_found_message() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.current_dir(temp.path())
-        .env("PATH", minimal_path_without_tools())
+        .env("PATH", path_without_tools())
         .arg("verify")
         .arg(dest.path());
 
@@ -1396,7 +1422,7 @@ fn run_shows_wasmtime_not_found_message() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.current_dir(temp.path())
-        .env("PATH", minimal_path_without_tools())
+        .env("PATH", path_without_tools())
         .arg("run")
         .arg(dest.path());
 
