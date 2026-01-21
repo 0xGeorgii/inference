@@ -420,8 +420,9 @@ jobs:
             infs-macos-apple-silicon.tar.gz
             infs-macos-apple-silicon.tar.gz.sha256
       
+      # Always upload workflow artifacts when packaging - needed for manifest generation
       - name: Upload Workflow Artifact infc (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts && !inputs.upload-to-release
+        if: runner.os == 'Windows' && inputs.package-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infc-windows-x64
@@ -431,7 +432,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infs (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts && !inputs.upload-to-release
+        if: runner.os == 'Windows' && inputs.package-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infs-windows-x64
@@ -441,7 +442,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infc (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts && !inputs.upload-to-release
+        if: runner.os == 'Linux' && inputs.package-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infc-linux-x64
@@ -451,7 +452,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infs (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts && !inputs.upload-to-release
+        if: runner.os == 'Linux' && inputs.package-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infs-linux-x64
@@ -461,7 +462,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infc (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts && !inputs.upload-to-release
+        if: runner.os == 'macOS' && inputs.package-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infc-macos-apple-silicon
@@ -471,7 +472,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infs (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts && !inputs.upload-to-release
+        if: runner.os == 'macOS' && inputs.package-artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infs-macos-apple-silicon
