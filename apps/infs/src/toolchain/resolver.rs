@@ -106,6 +106,7 @@ mod tests {
     use std::env;
 
     #[test]
+    #[serial_test::serial]
     fn infc_path_env_nonexistent_returns_error() {
         // Use a path that definitely doesn't exist
         let path = "/nonexistent/path/to/infc";
@@ -128,6 +129,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn error_message_contains_installation_instructions() {
         // Temporarily override PATH to ensure infc is not found
         let original_path = env::var("PATH").unwrap_or_default();

@@ -32,20 +32,16 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 /// GitHub repository owner for Inference releases.
-#[allow(dead_code)]
-pub const GITHUB_REPO_OWNER: &str = "Inferara";
+const GITHUB_REPO_OWNER: &str = "Inferara";
 
 /// GitHub repository name for Inference releases.
-#[allow(dead_code)]
-pub const GITHUB_REPO_NAME: &str = "inference";
+const GITHUB_REPO_NAME: &str = "inference";
 
 /// Base URL for the GitHub API.
-#[allow(dead_code)]
-pub const GITHUB_API_BASE: &str = "https://api.github.com";
+const GITHUB_API_BASE: &str = "https://api.github.com";
 
 /// Environment variable name for GitHub authentication token.
-#[allow(dead_code)]
-pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
+const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
 
 /// Environment variable to override the GitHub repository (format: "owner/repo").
 pub const GITHUB_REPO_ENV: &str = "INFS_GITHUB_REPO";
@@ -93,8 +89,11 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
 /// Represents a GitHub release.
 ///
 /// Contains metadata about a release and its associated downloadable assets.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// Note: This struct and related GitHub API functions are currently used only in tests.
+/// They provide infrastructure for potential future GitHub releases-based toolchain management.
 #[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GitHubRelease {
     /// The git tag name for this release (e.g., "v0.1.0").
     pub tag_name: String,
@@ -109,8 +108,8 @@ pub struct GitHubRelease {
 /// Represents a downloadable asset attached to a GitHub release.
 ///
 /// Assets are typically platform-specific binaries or archives.
-#[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GitHubAsset {
     /// The filename of the asset (e.g., "infc-linux-x64.tar.gz").
     pub name: String,
