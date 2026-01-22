@@ -138,13 +138,24 @@ jobs:
           install: mingw-w64-ucrt-x86_64-toolchain
           path-type: inherit
 
-      - name: Add MinGW to PATH (Windows)
+      - name: Configure MinGW PATH (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # The msys2/setup-msys2 action installs to C:\msys64 by default
+          # Remove pre-installed MinGW from PATH to avoid conflicts with MSYS2 UCRT64
+          # The pre-installed MinGW at C:\mingw64 can cause linking issues
+          $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Process")
+          $filteredPath = ($currentPath -split ';' | Where-Object { $_ -notmatch 'mingw64' -and $_ -notmatch 'Strawberry' }) -join ';'
+
+          # Add MSYS2 UCRT64 to the beginning of PATH
+          $newPath = "C:\msys64\ucrt64\bin;$filteredPath"
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$newPath"
+
+          # Also add to GITHUB_PATH for subsequent steps
           Add-Content -Path $env:GITHUB_PATH -Value "C:\msys64\ucrt64\bin"
-          Write-Output "Added MSYS2 UCRT64 MinGW to PATH"
+
+          Write-Output "Configured PATH to use MSYS2 UCRT64 MinGW exclusively"
+          Write-Output "GCC location: $(Get-Command x86_64-w64-mingw32-gcc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)"
       
       - name: Install LLVM (Linux)
         if: runner.os == 'Linux'
@@ -177,9 +188,12 @@ jobs:
           Copy-Item (Join-Path $cachedLibDir "libzstd.dll.a") (Join-Path $dstLib "libzstd.dll.a") -Force
           Copy-Item (Join-Path $cachedLibDir "libffi.dll.a") (Join-Path $dstLib "libffi.dll.a") -Force
 
+          # Filter out pre-installed MinGW from PATH to avoid C runtime conflicts
+          $filteredPath = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'mingw64' -and $_ -notmatch 'Strawberry' }) -join ';'
+
           # Set environment variables
           Add-Content -Path $env:GITHUB_ENV -Value "LLVM_SYS_211_PREFIX=$llvmDir"
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$PWD\external\bin;$llvmBin;$env:PATH"
+          Add-Content -Path $env:GITHUB_ENV -Value "PATH=C:\msys64\ucrt64\bin;$PWD\external\bin;$llvmBin;$filteredPath"
           Add-Content -Path $env:GITHUB_ENV -Value "LIB=$dstLib;$env:LIB"
       
       - name: Set LLVM Prefix (Linux)
