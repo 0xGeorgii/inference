@@ -146,13 +146,16 @@ jobs:
           # Add MSYS2 UCRT64 to PATH via GITHUB_PATH (prepends, takes effect in subsequent steps)
           Add-Content -Path $env:GITHUB_PATH -Value "C:\msys64\ucrt64\bin"
 
-          # Remove conflicting MinGW installations from current process PATH
-          $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Process")
-          $filteredPath = ($currentPath -split ';' | Where-Object {
+          # Remove conflicting MinGW installations and update current process PATH
+          $filteredPath = ($env:PATH -split ';' | Where-Object {
             $_ -notmatch 'C:\\mingw64' -and $_ -notmatch 'Strawberry'
           }) -join ';'
-          $newPath = "C:\msys64\ucrt64\bin;$filteredPath"
-          [Environment]::SetEnvironmentVariable("PATH", $newPath, "Process")
+          $env:PATH = "C:\msys64\ucrt64\bin;$filteredPath"
+
+          # Debug: show MSYS2 directory contents
+          Write-Output "MSYS2 UCRT64 bin directory contents:"
+          Get-ChildItem "C:\msys64\ucrt64\bin" -Filter "dlltool*" -ErrorAction SilentlyContinue | Select-Object Name
+          Get-ChildItem "C:\msys64\ucrt64\bin" -Filter "*gcc*" -ErrorAction SilentlyContinue | Select-Object Name
 
           # Verify dlltool is accessible
           Write-Output "Verifying MinGW tools..."
