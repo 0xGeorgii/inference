@@ -150,19 +150,16 @@ pub type Manifest = Vec<VersionEntry>;
 /// The latest stable version entry, or `None` if no stable versions exist.
 #[must_use = "returns version info without side effects"]
 pub fn latest_stable(manifest: &Manifest) -> Option<&VersionEntry> {
-    manifest
-        .iter()
-        .filter(|v| v.stable)
-        .max_by(|a, b| {
-            let a_ver = semver::Version::parse(&a.version).ok();
-            let b_ver = semver::Version::parse(&b.version).ok();
-            match (a_ver, b_ver) {
-                (Some(a), Some(b)) => a.cmp(&b),
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (None, None) => a.version.cmp(&b.version),
-            }
-        })
+    manifest.iter().filter(|v| v.stable).max_by(|a, b| {
+        let a_ver = semver::Version::parse(&a.version).ok();
+        let b_ver = semver::Version::parse(&b.version).ok();
+        match (a_ver, b_ver) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (None, None) => a.version.cmp(&b.version),
+        }
+    })
 }
 
 /// Finds a specific version in the manifest.
@@ -369,8 +366,9 @@ pub async fn fetch_artifact(
     let manifest = fetch_manifest().await?;
 
     let version_entry = match version {
-        None | Some("latest") => latest_stable(&manifest)
-            .context("No stable version found in manifest")?,
+        None | Some("latest") => {
+            latest_stable(&manifest).context("No stable version found in manifest")?
+        }
         Some(v) => find_version(&manifest, v)
             .with_context(|| format!("Version {v} not found in manifest"))?,
     };
@@ -573,8 +571,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&cached).expect("Should serialize");
-        let deserialized: CachedManifest =
-            serde_json::from_str(&json).expect("Should deserialize");
+        let deserialized: CachedManifest = serde_json::from_str(&json).expect("Should deserialize");
 
         assert_eq!(deserialized.timestamp, 1_000_000);
         assert_eq!(deserialized.manifest.len(), manifest.len());
@@ -667,13 +664,13 @@ mod tests {
             ],
         };
 
-        let infc = entry.find_artifact(Platform::LinuxX64, "infc");
-        assert!(infc.is_some());
-        assert_eq!(infc.unwrap().tool, "infc");
+        let compiler_artifact = entry.find_artifact(Platform::LinuxX64, "infc");
+        assert!(compiler_artifact.is_some());
+        assert_eq!(compiler_artifact.unwrap().tool, "infc");
 
-        let infs = entry.find_artifact(Platform::LinuxX64, "infs");
-        assert!(infs.is_some());
-        assert_eq!(infs.unwrap().tool, "infs");
+        let cli_artifact = entry.find_artifact(Platform::LinuxX64, "infs");
+        assert!(cli_artifact.is_some());
+        assert_eq!(cli_artifact.unwrap().tool, "infs");
 
         let other = entry.find_artifact(Platform::LinuxX64, "other");
         assert!(other.is_none());

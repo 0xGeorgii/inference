@@ -447,16 +447,17 @@ fn infc_binary() -> std::path::PathBuf {
 
 /// Helper to check if infc binary is available and skip test if not.
 /// Returns the path to infc if available.
+#[allow(clippy::unnecessary_debug_formatting)]
 fn require_infc() -> Option<std::path::PathBuf> {
     let infc_path = infc_binary();
-    if !infc_path.exists() {
+    if infc_path.exists() {
+        Some(infc_path)
+    } else {
         eprintln!(
             "Skipping test: infc binary not found at {infc_path:?}. \
              Build with `cargo build -p inference-cli` first."
         );
         None
-    } else {
-        Some(infc_path)
     }
 }
 
