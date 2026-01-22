@@ -531,6 +531,27 @@ fn install_without_network_shows_error() {
         .stderr(predicate::str::contains("Error").or(predicate::str::contains("error")));
 }
 
+/// Verifies that `INFS_GITHUB_REPO` environment variable is respected.
+///
+/// **Test setup**: Sets `INFS_GITHUB_REPO` to a nonexistent repository.
+///
+/// **Expected behavior**: Exit with non-zero code because the repository doesn't exist.
+/// This confirms the environment variable is being used for GitHub API requests.
+#[test]
+fn github_repo_env_is_respected() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFS_HOME", temp.path())
+        .env("INFS_GITHUB_REPO", "nonexistent-owner/nonexistent-repo")
+        .arg("install")
+        .arg("latest");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Error").or(predicate::str::contains("error")));
+}
+
 // -----------------------------------------------------------------------------
 // Uninstall Command Tests
 // -----------------------------------------------------------------------------

@@ -526,160 +526,56 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
-          DATE=$(date -u +"%Y-%m-%d")
-          REPO="Inferara/inference"
-          BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+          BASE_URL="https://github.com/Inferara/inference/releases/download/$TAG"
 
-          # Read checksums from .sha256 files
-          read_checksum() {
-            local file="$1"
-            if [ -f "$file" ]; then
-              # Handle both "checksum" and "checksum  filename" formats
-              cat "$file" | awk '{print $1}'
-            else
-              echo ""
-            fi
+          # Start with empty array
+          echo '[]' > manifest.json
+
+          # Helper: add file entry (Go-style format)
+          add_file() {
+            local filename="$1" os="$2" arch="$3" tool="$4" sha_file="$5" archive="$6"
+
+            [ -f "$sha_file" ] && [ -f "$archive" ] || return 0
+
+            local sha=$(awk '{print $1}' "$sha_file" | grep -E '^[a-fA-F0-9]{64}$' | head -1)
+            [ -n "$sha" ] || return 0
+
+            local size=$(stat -c%s "$archive" 2>/dev/null || echo 0)
+
+            jq --arg f "$filename" --arg o "$os" --arg a "$arch" --arg t "$tool" \
+               --arg u "$BASE_URL/$filename" --arg s "$sha" --argjson sz "$size" \
+               '. += [{filename:$f,os:$o,arch:$a,tool:$t,url:$u,sha256:$s,size:$sz}]' \
+               manifest.json > tmp.json && mv tmp.json manifest.json
           }
 
-          # Get file size
-          get_size() {
-            local file="$1"
-            if [ -f "$file" ]; then
-              stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo "0"
-            else
-              echo "0"
-            fi
-          }
+          # Add all files
+          add_file infc-linux-x64.tar.gz linux x64 infc \
+            artifacts/infc-linux-x64/infc-linux-x64.tar.gz.sha256 \
+            artifacts/infc-linux-x64/infc-linux-x64.tar.gz
 
-          # Initialize arrays for infc and infs
-          INFC_PLATFORMS="["
-          INFS_PLATFORMS="["
+          add_file infs-linux-x64.tar.gz linux x64 infs \
+            artifacts/infs-linux-x64/infs-linux-x64.tar.gz.sha256 \
+            artifacts/infs-linux-x64/infs-linux-x64.tar.gz
 
-          # Linux x64 - infc
-          if [ -d "artifacts/infc-linux-x64" ]; then
-            LINUX_SHA=$(read_checksum "artifacts/infc-linux-x64/infc-linux-x64.tar.gz.sha256")
-            LINUX_SIZE=$(get_size "artifacts/infc-linux-x64/infc-linux-x64.tar.gz")
-            if [ -n "$LINUX_SHA" ]; then
-              INFC_PLATFORMS="$INFC_PLATFORMS
-                {
-                  \"platform\": \"linux-x64\",
-                  \"artifact\": \"infc-linux-x64.tar.gz\",
-                  \"url\": \"$BASE_URL/infc-linux-x64.tar.gz\",
-                  \"sha256\": \"$LINUX_SHA\",
-                  \"size\": $LINUX_SIZE
-                },"
-            fi
-          fi
+          add_file infc-windows-x64.zip windows x64 infc \
+            artifacts/infc-windows-x64/infc-windows-x64.zip.sha256 \
+            artifacts/infc-windows-x64/infc-windows-x64.zip
 
-          # Linux x64 - infs
-          if [ -d "artifacts/infs-linux-x64" ]; then
-            LINUX_INFS_SHA=$(read_checksum "artifacts/infs-linux-x64/infs-linux-x64.tar.gz.sha256")
-            LINUX_INFS_SIZE=$(get_size "artifacts/infs-linux-x64/infs-linux-x64.tar.gz")
-            if [ -n "$LINUX_INFS_SHA" ]; then
-              INFS_PLATFORMS="$INFS_PLATFORMS
-                {
-                  \"platform\": \"linux-x64\",
-                  \"artifact\": \"infs-linux-x64.tar.gz\",
-                  \"url\": \"$BASE_URL/infs-linux-x64.tar.gz\",
-                  \"sha256\": \"$LINUX_INFS_SHA\",
-                  \"size\": $LINUX_INFS_SIZE
-                },"
-            fi
-          fi
+          add_file infs-windows-x64.zip windows x64 infs \
+            artifacts/infs-windows-x64/infs-windows-x64.zip.sha256 \
+            artifacts/infs-windows-x64/infs-windows-x64.zip
 
-          # Windows x64 - infc
-          if [ -d "artifacts/infc-windows-x64" ]; then
-            # Windows certutil format: "SHA256 hash of file:\nchecksum\n..."
-            WIN_SHA=$(cat "artifacts/infc-windows-x64/infc-windows-x64.zip.sha256" 2>/dev/null | grep -E '^[a-fA-F0-9]{64}$' | head -1 || echo "")
-            WIN_SIZE=$(get_size "artifacts/infc-windows-x64/infc-windows-x64.zip")
-            if [ -n "$WIN_SHA" ]; then
-              INFC_PLATFORMS="$INFC_PLATFORMS
-                {
-                  \"platform\": \"windows-x64\",
-                  \"artifact\": \"infc-windows-x64.zip\",
-                  \"url\": \"$BASE_URL/infc-windows-x64.zip\",
-                  \"sha256\": \"$WIN_SHA\",
-                  \"size\": $WIN_SIZE
-                },"
-            fi
-          fi
+          add_file infc-macos-apple-silicon.tar.gz macos arm64 infc \
+            artifacts/infc-macos-apple-silicon/infc-macos-apple-silicon.tar.gz.sha256 \
+            artifacts/infc-macos-apple-silicon/infc-macos-apple-silicon.tar.gz
 
-          # Windows x64 - infs
-          if [ -d "artifacts/infs-windows-x64" ]; then
-            WIN_INFS_SHA=$(cat "artifacts/infs-windows-x64/infs-windows-x64.zip.sha256" 2>/dev/null | grep -E '^[a-fA-F0-9]{64}$' | head -1 || echo "")
-            WIN_INFS_SIZE=$(get_size "artifacts/infs-windows-x64/infs-windows-x64.zip")
-            if [ -n "$WIN_INFS_SHA" ]; then
-              INFS_PLATFORMS="$INFS_PLATFORMS
-                {
-                  \"platform\": \"windows-x64\",
-                  \"artifact\": \"infs-windows-x64.zip\",
-                  \"url\": \"$BASE_URL/infs-windows-x64.zip\",
-                  \"sha256\": \"$WIN_INFS_SHA\",
-                  \"size\": $WIN_INFS_SIZE
-                },"
-            fi
-          fi
+          add_file infs-macos-apple-silicon.tar.gz macos arm64 infs \
+            artifacts/infs-macos-apple-silicon/infs-macos-apple-silicon.tar.gz.sha256 \
+            artifacts/infs-macos-apple-silicon/infs-macos-apple-silicon.tar.gz
 
-          # macOS Apple Silicon - infc
-          if [ -d "artifacts/infc-macos-apple-silicon" ]; then
-            MACOS_SHA=$(read_checksum "artifacts/infc-macos-apple-silicon/infc-macos-apple-silicon.tar.gz.sha256")
-            MACOS_SIZE=$(get_size "artifacts/infc-macos-apple-silicon/infc-macos-apple-silicon.tar.gz")
-            if [ -n "$MACOS_SHA" ]; then
-              INFC_PLATFORMS="$INFC_PLATFORMS
-                {
-                  \"platform\": \"macos-arm64\",
-                  \"artifact\": \"infc-macos-apple-silicon.tar.gz\",
-                  \"url\": \"$BASE_URL/infc-macos-apple-silicon.tar.gz\",
-                  \"sha256\": \"$MACOS_SHA\",
-                  \"size\": $MACOS_SIZE
-                },"
-            fi
-          fi
-
-          # macOS Apple Silicon - infs
-          if [ -d "artifacts/infs-macos-apple-silicon" ]; then
-            MACOS_INFS_SHA=$(read_checksum "artifacts/infs-macos-apple-silicon/infs-macos-apple-silicon.tar.gz.sha256")
-            MACOS_INFS_SIZE=$(get_size "artifacts/infs-macos-apple-silicon/infs-macos-apple-silicon.tar.gz")
-            if [ -n "$MACOS_INFS_SHA" ]; then
-              INFS_PLATFORMS="$INFS_PLATFORMS
-                {
-                  \"platform\": \"macos-arm64\",
-                  \"artifact\": \"infs-macos-apple-silicon.tar.gz\",
-                  \"url\": \"$BASE_URL/infs-macos-apple-silicon.tar.gz\",
-                  \"sha256\": \"$MACOS_INFS_SHA\",
-                  \"size\": $MACOS_INFS_SIZE
-                },"
-            fi
-          fi
-
-          # Remove trailing commas and close arrays
-          INFC_PLATFORMS=$(echo "$INFC_PLATFORMS" | sed 's/,$//')
-          INFC_PLATFORMS="$INFC_PLATFORMS
-              ]"
-          INFS_PLATFORMS=$(echo "$INFS_PLATFORMS" | sed 's/,$//')
-          INFS_PLATFORMS="$INFS_PLATFORMS
-              ]"
-
-          # Generate the manifest with both infc and infs
-          cat > manifest.json << EOF
-          {
-            "schema_version": 2,
-            "version": "$VERSION",
-            "date": "$DATE",
-            "tools": {
-              "infc": {
-                "platforms": $INFC_PLATFORMS
-              },
-              "infs": {
-                "platforms": $INFS_PLATFORMS
-              }
-            }
-          }
-          EOF
-
-          # Pretty print and validate JSON
-          cat manifest.json | python3 -m json.tool > manifest_pretty.json
-          mv manifest_pretty.json manifest.json
+          # Wrap in version object (like Go's format)
+          jq --arg v "$VERSION" '{version:$v,stable:true,files:.}' manifest.json > tmp.json
+          echo "[$(<tmp.json)]" | jq . > manifest.json
 
           echo "Generated manifest.json:"
           cat manifest.json

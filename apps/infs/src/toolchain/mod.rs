@@ -29,8 +29,7 @@ pub use archive::extract_zip;
 pub use download::{ProgressCallback, ProgressEvent, download_file, download_file_with_callback};
 #[allow(unused_imports)]
 pub use github::{GitHubAsset, GitHubRelease, fetch_latest_release, fetch_release, list_releases};
-#[allow(unused_imports)]
-pub use manifest::{fetch_artifact, fetch_artifact_checksum, fetch_manifest};
+pub use manifest::{fetch_artifact, fetch_manifest, latest_stable};
 pub use paths::ToolchainPaths;
 pub use platform::Platform;
 pub use verify::verify_checksum;

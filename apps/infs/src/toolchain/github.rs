@@ -47,6 +47,9 @@ pub const GITHUB_API_BASE: &str = "https://api.github.com";
 #[allow(dead_code)]
 pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
 
+/// Environment variable to override the GitHub repository (format: "owner/repo").
+pub const GITHUB_REPO_ENV: &str = "INFS_GITHUB_REPO";
+
 /// User-Agent header value for API requests.
 const USER_AGENT: &str = "infs-toolchain-manager";
 
@@ -148,6 +151,24 @@ fn build_request(url: &str) -> Result<reqwest::RequestBuilder> {
     Ok(request)
 }
 
+/// Returns the GitHub repository owner and name.
+///
+/// Checks `INFS_GITHUB_REPO` first (format: "owner/repo"), falls back to defaults.
+/// Returns an error if the env var is set but has an invalid format.
+fn repo_config() -> Result<(String, String)> {
+    match std::env::var(GITHUB_REPO_ENV) {
+        Ok(val) => {
+            let parts: Vec<&str> = val.trim().splitn(2, '/').collect();
+            if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+                Ok((parts[0].to_string(), parts[1].to_string()))
+            } else {
+                bail!("Invalid {GITHUB_REPO_ENV} format. Expected 'owner/repo', got: '{val}'");
+            }
+        }
+        Err(_) => Ok((GITHUB_REPO_OWNER.to_string(), GITHUB_REPO_NAME.to_string())),
+    }
+}
+
 /// Handles HTTP errors from the GitHub API.
 ///
 /// Provides user-friendly error messages for common failure scenarios.
@@ -188,12 +209,10 @@ fn handle_http_error(status: reqwest::StatusCode, url: &str) -> anyhow::Error {
 ///     println!("{}: {} assets", release.tag_name, release.assets.len());
 /// }
 /// ```
-#[allow(dead_code, clippy::uninlined_format_args)]
+#[allow(dead_code)]
 pub async fn list_releases() -> Result<Vec<GitHubRelease>> {
-    let url = format!(
-        "{}/repos/{}/{}/releases",
-        GITHUB_API_BASE, GITHUB_REPO_OWNER, GITHUB_REPO_NAME
-    );
+    let (owner, repo) = repo_config()?;
+    let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/releases");
 
     let response = build_request(&url)?
         .send()
@@ -239,12 +258,10 @@ pub async fn list_releases() -> Result<Vec<GitHubRelease>> {
 ///     println!("  {}: {} bytes", asset.name, asset.size);
 /// }
 /// ```
-#[allow(dead_code, clippy::uninlined_format_args)]
+#[allow(dead_code)]
 pub async fn fetch_release(tag: &str) -> Result<GitHubRelease> {
-    let url = format!(
-        "{}/repos/{}/{}/releases/tags/{}",
-        GITHUB_API_BASE, GITHUB_REPO_OWNER, GITHUB_REPO_NAME, tag
-    );
+    let (owner, repo) = repo_config()?;
+    let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/releases/tags/{tag}");
 
     let response = build_request(&url)?
         .send()
@@ -521,5 +538,63 @@ mod tests {
         let first_stable = releases.into_iter().find(|r| !r.prerelease);
         assert!(first_stable.is_some());
         assert_eq!(first_stable.unwrap().tag_name, "v0.2.0");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repo_config_uses_default_when_env_not_set() {
+        unsafe { std::env::remove_var(GITHUB_REPO_ENV) };
+        let (owner, repo) = repo_config().unwrap();
+        assert_eq!(owner, "Inferara");
+        assert_eq!(repo, "inference");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repo_config_uses_env_when_set() {
+        unsafe { std::env::set_var(GITHUB_REPO_ENV, "testowner/testrepo") };
+        let (owner, repo) = repo_config().unwrap();
+        assert_eq!(owner, "testowner");
+        assert_eq!(repo, "testrepo");
+        unsafe { std::env::remove_var(GITHUB_REPO_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repo_config_fails_on_invalid_format() {
+        unsafe { std::env::set_var(GITHUB_REPO_ENV, "invalid") };
+        let result = repo_config();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Invalid INFS_GITHUB_REPO format"));
+        unsafe { std::env::remove_var(GITHUB_REPO_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repo_config_fails_on_empty_owner() {
+        unsafe { std::env::set_var(GITHUB_REPO_ENV, "/repo") };
+        let result = repo_config();
+        assert!(result.is_err());
+        unsafe { std::env::remove_var(GITHUB_REPO_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repo_config_fails_on_empty_repo() {
+        unsafe { std::env::set_var(GITHUB_REPO_ENV, "owner/") };
+        let result = repo_config();
+        assert!(result.is_err());
+        unsafe { std::env::remove_var(GITHUB_REPO_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn repo_config_trims_whitespace() {
+        unsafe { std::env::set_var(GITHUB_REPO_ENV, "  owner/repo  ") };
+        let (owner, repo) = repo_config().unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+        unsafe { std::env::remove_var(GITHUB_REPO_ENV) };
     }
 }

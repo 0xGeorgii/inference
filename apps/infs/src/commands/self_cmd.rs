@@ -14,7 +14,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::toolchain::{
-    Platform, ToolchainPaths, download_file, extract_zip, fetch_manifest, verify_checksum,
+    Platform, ToolchainPaths, download_file, extract_zip, fetch_manifest, latest_stable,
+    verify_checksum,
 };
 
 /// Arguments for the self command.
@@ -78,10 +79,9 @@ async fn execute_update() -> Result<()> {
     println!("Checking for updates...");
     let manifest = fetch_manifest().await?;
 
-    let latest_version = match &manifest.latest_infs {
-        Some(v) => v.clone(),
-        None => manifest.latest_stable.clone(),
-    };
+    let latest_entry = latest_stable(&manifest)
+        .context("No stable version found in manifest")?;
+    let latest_version = &latest_entry.version;
 
     if latest_version == current_version {
         println!("infs is already up to date.");
@@ -90,7 +90,7 @@ async fn execute_update() -> Result<()> {
 
     let current_semver = semver::Version::parse(current_version)
         .with_context(|| format!("Invalid current version: {current_version}"))?;
-    let latest_semver = semver::Version::parse(&latest_version)
+    let latest_semver = semver::Version::parse(latest_version)
         .with_context(|| format!("Invalid latest version: {latest_version}"))?;
 
     if current_semver >= latest_semver {
@@ -98,7 +98,7 @@ async fn execute_update() -> Result<()> {
         return Ok(());
     }
 
-    let artifact = manifest
+    let artifact = latest_entry
         .find_infs_artifact(platform)
         .with_context(|| format!("No infs binary available for platform {platform}"))?;
 
@@ -110,12 +110,8 @@ async fn execute_update() -> Result<()> {
     println!("Downloading from {}...", artifact.url);
     download_file(&artifact.url, &download_path, artifact.size).await?;
 
-    if let Some(ref checksum) = artifact.sha256 {
-        println!("Verifying checksum...");
-        verify_checksum(&download_path, checksum)?;
-    } else {
-        println!("Skipping checksum verification (not available from GitHub API).");
-    }
+    println!("Verifying checksum...");
+    verify_checksum(&download_path, &artifact.sha256)?;
 
     println!("Extracting...");
     let temp_dir = paths.downloads.join(format!("infs-{latest_version}-temp"));
