@@ -153,12 +153,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn should_use_tui_respects_ci_env() {
         // Save original value
         let original = std::env::var("CI").ok();
 
-        // SAFETY: Tests run single-threaded with #[test], so setting env vars is safe
-        // for the duration of this test.
+        // SAFETY: This test is marked #[serial_test::serial] to ensure exclusive
+        // access to environment variables. No other tests run concurrently.
         unsafe {
             std::env::set_var("CI", "true");
         }
@@ -184,12 +185,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn should_use_tui_respects_no_color_env() {
         // Save original value
         let original = std::env::var("NO_COLOR").ok();
 
-        // SAFETY: Tests run single-threaded with #[test], so setting env vars is safe
-        // for the duration of this test.
+        // SAFETY: This test is marked #[serial_test::serial] to ensure exclusive
+        // access to environment variables. No other tests run concurrently.
         unsafe {
             std::env::set_var("NO_COLOR", "1");
         }

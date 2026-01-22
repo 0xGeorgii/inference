@@ -66,7 +66,9 @@ pub async fn execute(args: &UninstallArgs) -> Result<()> {
             paths.remove_symlinks()?;
             println!("No toolchains remaining. Default has been cleared.");
         } else {
-            let new_default = remaining_versions.last().unwrap_or(&remaining_versions[0]);
+            let new_default = remaining_versions
+                .last()
+                .expect("remaining_versions is non-empty, checked above");
             paths.set_default_version(new_default)?;
             paths.update_symlinks(new_default)?;
             println!("Default toolchain changed to {new_default}.");

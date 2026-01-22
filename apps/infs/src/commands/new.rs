@@ -37,6 +37,7 @@ use crate::project::{available_templates, create_project, get_template};
 
 /// Arguments for the `new` command.
 #[derive(Args)]
+#[command(after_help = "TIPS:\n    Run 'infs new --list-templates' to see all available project templates.")]
 pub struct NewArgs {
     /// Name of the project to create.
     ///

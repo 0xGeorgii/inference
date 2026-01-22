@@ -77,7 +77,15 @@ use errors::InfsError;
     version,
     about = "Inference unified CLI toolchain",
     long_about = "The 'infs' command is the unified entry point for the Inference programming \
-    language toolchain. Use subcommands like 'build' to compile source files."
+    language toolchain. Use subcommands like 'build' to compile source files.",
+    after_help = "\
+ENVIRONMENT VARIABLES:
+    CI              When set to 'true' or '1', disables the interactive TUI
+    NO_COLOR        When set (any value), disables the interactive TUI
+    INFC_PATH       Override the path to the infc compiler binary
+    INFS_HOME       Override the toolchain installation directory (default: ~/.infs)
+    INFS_GITHUB_REPO    Override the GitHub repository for toolchain downloads
+    INFS_MANIFEST_URL   Override the URL for the release manifest"
 )]
 pub struct Cli {
     /// Run in headless mode without TUI.
