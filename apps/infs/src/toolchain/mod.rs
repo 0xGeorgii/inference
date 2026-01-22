@@ -23,6 +23,7 @@ pub mod github;
 pub mod manifest;
 pub mod paths;
 pub mod platform;
+pub mod resolver;
 pub mod verify;
 
 pub use archive::extract_zip;
@@ -32,6 +33,7 @@ pub use github::{GitHubAsset, GitHubRelease, fetch_latest_release, fetch_release
 pub use manifest::{fetch_artifact, fetch_manifest, latest_stable};
 pub use paths::ToolchainPaths;
 pub use platform::Platform;
+pub use resolver::find_infc;
 pub use verify::verify_checksum;
 
 use anyhow::Context;

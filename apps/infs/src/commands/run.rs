@@ -3,27 +3,30 @@
 //! Run command for the infs CLI.
 //!
 //! Compiles Inference source files and executes the resulting WASM
-//! using wasmtime in a single step.
+//! using wasmtime in a single step. This module delegates compilation
+//! to the `infc` compiler via subprocess.
 //!
 //! ## Execution Pipeline
 //!
 //! 1. **Validate** - Check source file exists
 //! 2. **Check** - Verify wasmtime is available in PATH
-//! 3. **Compile** - Parse, type check, analyze, and generate WASM
-//! 4. **Write** - Persist WASM binary to ./out/ directory
+//! 3. **Locate** - Find the infc compiler binary
+//! 4. **Compile** - Call infc with `--parse --codegen -o` to generate WASM
 //! 5. **Execute** - Run WASM with wasmtime, passing arguments
 //!
 //! ## Prerequisites
 //!
-//! This command requires wasmtime (a WebAssembly runtime) to be
-//! installed and available in PATH.
+//! This command requires:
+//! - `infc` compiler (via toolchain or PATH)
+//! - `wasmtime` WebAssembly runtime (in PATH)
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use inference::{analyze, codegen, parse, type_check};
-use std::{fs, path::{Path, PathBuf}, process::Command};
+use std::path::PathBuf;
+use std::process::Command;
 
 use crate::errors::InfsError;
+use crate::toolchain::find_infc;
 
 /// Arguments for the run command.
 ///
@@ -45,8 +48,8 @@ pub struct RunArgs {
 ///
 /// 1. Validates source file exists
 /// 2. Checks for wasmtime availability
-/// 3. Compiles source to WASM
-/// 4. Writes WASM to ./out/ directory
+/// 3. Locates the infc compiler
+/// 4. Compiles source to WASM via infc subprocess
 /// 5. Executes WASM with wasmtime
 /// 6. Propagates exit code from wasmtime
 ///
@@ -61,10 +64,9 @@ pub struct RunArgs {
 /// Returns an error if:
 /// - The source file does not exist
 /// - wasmtime is not found in PATH
-/// - Any compilation phase fails
-/// - WASM file writing fails
-/// - wasmtime execution fails to start
-/// - wasmtime exits with non-zero code (as `InfsError::ProcessExitCode`)
+/// - infc compiler cannot be found
+/// - Compilation fails
+/// - WASM execution fails
 pub fn execute(args: &RunArgs) -> Result<()> {
     if !args.path.exists() {
         bail!("Path not found: {}", args.path.display());
@@ -72,16 +74,9 @@ pub fn execute(args: &RunArgs) -> Result<()> {
 
     check_wasmtime_availability()?;
 
-    let wasm = compile_to_wasm(&args.path)?;
+    let infc_path = find_infc()?;
 
-    let source_fname = args
-        .path
-        .file_stem()
-        .unwrap_or_else(|| std::ffi::OsStr::new("module"))
-        .to_str()
-        .unwrap_or("module");
-
-    let wasm_path = write_wasm_output(source_fname, &wasm)?;
+    let wasm_path = compile_to_wasm(&infc_path, &args.path)?;
 
     run_wasmtime(&wasm_path, &args.args)
 }
@@ -101,40 +96,44 @@ fn check_wasmtime_availability() -> Result<()> {
     Ok(())
 }
 
-/// Compiles source file to WASM binary.
-fn compile_to_wasm(source_path: &Path) -> Result<Vec<u8>> {
-    let source_code = fs::read_to_string(source_path)
-        .with_context(|| format!("Failed to read source file: {}", source_path.display()))?;
+/// Compiles source file to WASM binary using infc subprocess.
+///
+/// Calls infc with `--parse --codegen -o` flags to generate the WASM file
+/// in the `out/` directory.
+fn compile_to_wasm(infc_path: &PathBuf, source_path: &PathBuf) -> Result<PathBuf> {
+    let mut cmd = Command::new(infc_path);
+    cmd.arg(source_path)
+        .arg("--parse")
+        .arg("--codegen")
+        .arg("-o");
 
-    let arena = parse(source_code.as_str())
-        .with_context(|| format!("Parse error in {}", source_path.display()))?;
-    println!("Parsed: {}", source_path.display());
+    let status = cmd
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .with_context(|| format!("Failed to execute infc at {}", infc_path.display()))?;
 
-    let typed_context = type_check(arena)
-        .with_context(|| format!("Type checking failed for {}", source_path.display()))?;
+    if !status.success() {
+        let code = status.code().unwrap_or(1);
+        return Err(InfsError::process_exit_code(code).into());
+    }
 
-    analyze(&typed_context)
-        .with_context(|| format!("Analysis failed for {}", source_path.display()))?;
-    println!("Analyzed: {}", source_path.display());
+    let source_fname = source_path
+        .file_stem()
+        .unwrap_or_else(|| std::ffi::OsStr::new("module"))
+        .to_str()
+        .unwrap_or("module");
 
-    let wasm = codegen(&typed_context)
-        .with_context(|| format!("Codegen failed for {}", source_path.display()))?;
-    println!("WASM generated");
+    let wasm_path = PathBuf::from("out").join(format!("{source_fname}.wasm"));
 
-    Ok(wasm)
-}
+    if !wasm_path.exists() {
+        bail!(
+            "Compilation succeeded but WASM file not found at: {}",
+            wasm_path.display()
+        );
+    }
 
-/// Writes WASM binary to the output directory.
-fn write_wasm_output(source_fname: &str, wasm: &[u8]) -> Result<PathBuf> {
-    let output_dir = PathBuf::from("out");
-    fs::create_dir_all(&output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
-
-    let wasm_path = output_dir.join(format!("{source_fname}.wasm"));
-    fs::write(&wasm_path, wasm)
-        .with_context(|| format!("Failed to write WASM file: {}", wasm_path.display()))?;
-
-    println!("WASM written to: {}", wasm_path.display());
     Ok(wasm_path)
 }
 
@@ -143,7 +142,7 @@ fn write_wasm_output(source_fname: &str, wasm: &[u8]) -> Result<PathBuf> {
 /// Returns `Ok(())` on success, or `Err(InfsError::ProcessExitCode)` if wasmtime
 /// exits with a non-zero code. This allows the caller to propagate the exit code
 /// without bypassing RAII cleanup.
-fn run_wasmtime(wasm_path: &Path, args: &[String]) -> Result<()> {
+fn run_wasmtime(wasm_path: &PathBuf, args: &[String]) -> Result<()> {
     println!("Running with wasmtime...");
 
     let mut cmd = Command::new("wasmtime");

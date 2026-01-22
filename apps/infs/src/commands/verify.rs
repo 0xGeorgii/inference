@@ -3,23 +3,30 @@
 //! Verify command for the infs CLI.
 //!
 //! Compiles Inference source files to WASM, translates to Rocq (.v),
-//! and runs coqc to verify the generated proofs.
+//! and runs coqc to verify the generated proofs. This module delegates
+//! compilation to the `infc` compiler via subprocess.
 //!
 //! ## Verification Pipeline
 //!
-//! 1. **Compile** - Parse, type check, analyze, and generate WASM
-//! 2. **Translate** - Convert WASM to Rocq (.v) format
-//! 3. **Verify** - Run coqc on the generated .v file
+//! 1. **Locate** - Find the infc compiler binary
+//! 2. **Compile** - Call infc with `--parse --codegen -v` to generate .v file in `out/`
+//! 3. **Copy** - Move the .v file from `out/` to the user's output directory
+//! 4. **Verify** - Run coqc on the generated .v file
 //!
 //! ## Prerequisites
 //!
-//! This command requires coqc (the Rocq/Coq proof assistant) to be
-//! installed and available in PATH.
+//! This command requires:
+//! - `infc` compiler (via toolchain or PATH)
+//! - `coqc` (the Rocq/Coq proof assistant) in PATH
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use inference::{analyze, codegen, parse, type_check, wasm_to_v};
-use std::{fs, path::{Path, PathBuf}, process::Command};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::fs;
+
+use crate::errors::InfsError;
+use crate::toolchain::find_infc;
 
 /// Arguments for the verify command.
 ///
@@ -45,16 +52,18 @@ pub struct VerifyArgs {
 ///
 /// 1. Validates source file exists
 /// 2. Checks for coqc availability
-/// 3. Compiles source to WASM (unless skip-compile is set and .v is fresh)
-/// 4. Translates WASM to Rocq (.v)
-/// 5. Runs coqc verification
-/// 6. Reports results
+/// 3. Locates the infc compiler
+/// 4. Compiles source to Rocq (.v) via infc subprocess (unless skip-compile is set and .v is fresh)
+/// 5. Copies the .v file from out/ to the user's output directory
+/// 6. Runs coqc verification
+/// 7. Reports results
 ///
 /// ## Errors
 ///
 /// Returns an error if:
 /// - The source file does not exist
 /// - coqc is not found in PATH
+/// - infc compiler cannot be found
 /// - Any compilation phase fails
 /// - coqc verification fails
 pub fn execute(args: &VerifyArgs) -> Result<()> {
@@ -80,8 +89,11 @@ pub fn execute(args: &VerifyArgs) -> Result<()> {
     };
 
     if should_compile {
-        let v_content = compile_to_rocq(&args.path, source_fname)?;
-        write_v_file(&args.output_dir, &v_file_path, &v_content)?;
+        let infc_path = find_infc()?;
+        compile_to_rocq(&infc_path, &args.path)?;
+
+        let out_v_path = PathBuf::from("out").join(format!("{source_fname}.v"));
+        copy_v_to_output_dir(&out_v_path, &args.output_dir, &v_file_path)?;
     } else {
         println!("Skipping compilation: {} is up to date", v_file_path.display());
     }
@@ -121,42 +133,56 @@ fn is_source_newer_than_v(source: &Path, v_file: &Path) -> Result<bool> {
     Ok(source_modified > v_modified)
 }
 
-/// Compiles source file to Rocq (.v) format.
-fn compile_to_rocq(source_path: &Path, source_fname: &str) -> Result<String> {
-    let source_code = fs::read_to_string(source_path)
-        .with_context(|| format!("Failed to read source file: {}", source_path.display()))?;
+/// Compiles source file to Rocq (.v) format using infc subprocess.
+///
+/// Calls infc with `--parse --codegen -v` flags to generate the .v file
+/// in the `out/` directory.
+fn compile_to_rocq(infc_path: &PathBuf, source_path: &PathBuf) -> Result<()> {
+    let mut cmd = Command::new(infc_path);
+    cmd.arg(source_path)
+        .arg("--parse")
+        .arg("--codegen")
+        .arg("-v");
 
-    let arena = parse(source_code.as_str())
-        .with_context(|| format!("Parse error in {}", source_path.display()))?;
-    println!("Parsed: {}", source_path.display());
+    let status = cmd
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .with_context(|| format!("Failed to execute infc at {}", infc_path.display()))?;
 
-    let typed_context = type_check(arena)
-        .with_context(|| format!("Type checking failed for {}", source_path.display()))?;
+    if !status.success() {
+        let code = status.code().unwrap_or(1);
+        return Err(InfsError::process_exit_code(code).into());
+    }
 
-    analyze(&typed_context)
-        .with_context(|| format!("Analysis failed for {}", source_path.display()))?;
-    println!("Analyzed: {}", source_path.display());
-
-    let wasm = codegen(&typed_context)
-        .with_context(|| format!("Codegen failed for {}", source_path.display()))?;
-    println!("WASM generated");
-
-    let v_content = wasm_to_v(source_fname, &wasm)
-        .with_context(|| format!("WASM to Rocq translation failed for {source_fname}"))?;
-    println!("Rocq translation generated");
-
-    Ok(v_content)
+    Ok(())
 }
 
-/// Writes the .v file to the output directory.
-fn write_v_file(output_dir: &Path, v_file_path: &Path, v_content: &str) -> Result<()> {
+/// Copies the .v file from out/ to the user's output directory.
+fn copy_v_to_output_dir(
+    out_v_path: &Path,
+    output_dir: &Path,
+    dest_v_path: &Path,
+) -> Result<()> {
+    if !out_v_path.exists() {
+        bail!(
+            "Compilation succeeded but .v file not found at: {}",
+            out_v_path.display()
+        );
+    }
+
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
-    fs::write(v_file_path, v_content)
-        .with_context(|| format!("Failed to write Rocq file: {}", v_file_path.display()))?;
+    fs::copy(out_v_path, dest_v_path)
+        .with_context(|| format!(
+            "Failed to copy .v file from {} to {}",
+            out_v_path.display(),
+            dest_v_path.display()
+        ))?;
 
-    println!("Rocq file written to: {}", v_file_path.display());
+    println!("Rocq file written to: {}", dest_v_path.display());
     Ok(())
 }
 
@@ -193,8 +219,8 @@ fn copy_v_for_debugging(v_file_path: &Path) -> Result<()> {
 
     if let Some(file_name) = v_file_path.file_name() {
         let dest = out_dir.join(file_name);
-        fs::copy(v_file_path, &dest)
-            .with_context(|| format!("Failed to copy .v file to {}", dest.display()))?;
+        // Ignore errors here since the file might already be in out/
+        let _ = fs::copy(v_file_path, &dest);
     }
 
     Ok(())

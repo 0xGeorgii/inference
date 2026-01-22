@@ -196,8 +196,13 @@ fn build_fails_when_no_phase_selected() {
 /// when the source file is syntactically valid.
 #[test]
 fn build_parse_only_succeeds() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("build")
+    cmd.env("INFC_PATH", &infc_path)
+        .arg("build")
         .arg(example_file("example.inf"))
         .arg("--parse");
 
@@ -212,13 +217,18 @@ fn build_parse_only_succeeds() {
 /// unlike `example.inf` which has type checker issues.
 #[test]
 fn build_analyze_succeeds() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
     let temp = assert_fs::TempDir::new().unwrap();
     let src = codegen_test_file("trivial.inf");
     let dest = temp.child("trivial.inf");
     std::fs::copy(&src, dest.path()).unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path())
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
         .arg("build")
         .arg(dest.path())
         .arg("--analyze");
@@ -236,13 +246,18 @@ fn build_analyze_succeeds() {
 /// **Expected behavior**: The compilation succeeds and produces a .wasm file.
 #[test]
 fn build_codegen_succeeds() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
     let temp = assert_fs::TempDir::new().unwrap();
     let src = codegen_test_file("trivial.inf");
     let dest = temp.child("trivial.inf");
     std::fs::copy(&src, dest.path()).unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path())
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
         .arg("build")
         .arg(dest.path())
         .arg("--codegen")
@@ -265,13 +280,18 @@ fn build_codegen_succeeds() {
 /// **Expected behavior**: The compilation succeeds and produces both .wasm and .v files.
 #[test]
 fn build_full_pipeline_with_v_output() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
     let temp = assert_fs::TempDir::new().unwrap();
     let src = codegen_test_file("trivial.inf");
     let dest = temp.child("trivial.inf");
     std::fs::copy(&src, dest.path()).unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path())
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
         .arg("build")
         .arg(dest.path())
         .arg("--codegen")
@@ -425,20 +445,30 @@ fn infc_binary() -> std::path::PathBuf {
     target_dir.join(binary_name)
 }
 
+/// Helper to check if infc binary is available and skip test if not.
+/// Returns the path to infc if available.
+fn require_infc() -> Option<std::path::PathBuf> {
+    let infc_path = infc_binary();
+    if !infc_path.exists() {
+        eprintln!(
+            "Skipping test: infc binary not found at {infc_path:?}. \
+             Build with `cargo build -p inference-cli` first."
+        );
+        None
+    } else {
+        Some(infc_path)
+    }
+}
+
 /// Verifies that `infs build` produces byte-identical WASM output as `infc`.
 ///
 /// This test ensures backward compatibility and correctness by comparing
 /// the output from both CLI tools when compiling the same source file.
 #[test]
 fn build_produces_identical_wasm_as_infc() {
-    let infc_path = infc_binary();
-    if !infc_path.exists() {
-        eprintln!(
-            "Skipping byte-identical test: infc binary not found at {infc_path:?}. \
-             Build with `cargo build -p inference-cli` first."
-        );
+    let Some(infc_path) = require_infc() else {
         return;
-    }
+    };
 
     let temp_new = assert_fs::TempDir::new().unwrap();
     let temp_legacy = assert_fs::TempDir::new().unwrap();
@@ -453,6 +483,7 @@ fn build_produces_identical_wasm_as_infc() {
 
     let mut cmd_new = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd_new
+        .env("INFC_PATH", &infc_path)
         .current_dir(temp_new.path())
         .arg("build")
         .arg(dest_new.path())
@@ -1493,7 +1524,7 @@ fn is_coqc_available() -> bool {
 
 /// Verifies full `infs run` workflow with wasmtime.
 ///
-/// **Prerequisites**: wasmtime must be installed and in PATH.
+/// **Prerequisites**: wasmtime must be installed and in PATH, and infc must be built.
 ///
 /// **Test setup**: Compiles a trivial Inference program and runs it.
 ///
@@ -1505,13 +1536,20 @@ fn run_full_workflow_with_wasmtime() {
         return;
     }
 
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
     let temp = assert_fs::TempDir::new().unwrap();
     let src = codegen_test_file("trivial.inf");
     let dest = temp.child("trivial.inf");
     std::fs::copy(&src, dest.path()).unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path()).arg("run").arg(dest.path());
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
+        .arg("run")
+        .arg(dest.path());
 
     cmd.assert().success();
 }
@@ -1519,7 +1557,7 @@ fn run_full_workflow_with_wasmtime() {
 /// Verifies full `infs verify` workflow with coqc.
 ///
 /// **Prerequisites**: coqc (Rocq/Coq compiler) must be installed and in PATH,
-/// AND the Wasm Coq library must be installed and configured.
+/// infc must be built, AND the Wasm Coq library must be installed and configured.
 ///
 /// **Test setup**: Compiles a trivial Inference program, translates to Rocq, verifies.
 ///
@@ -1534,13 +1572,18 @@ fn verify_full_workflow_with_coqc() {
         return;
     }
 
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
     let temp = assert_fs::TempDir::new().unwrap();
     let src = codegen_test_file("trivial.inf");
     let dest = temp.child("trivial.inf");
     std::fs::copy(&src, dest.path()).unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path())
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
         .arg("verify")
         .arg(dest.path())
         .arg("--output-dir")
