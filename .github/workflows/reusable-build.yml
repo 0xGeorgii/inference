@@ -246,11 +246,11 @@ jobs:
       
       - name: Build Release (Non-Windows)
         if: runner.os != 'Windows' && inputs.release-build
-        run: cargo build-full --release --verbose
+        run: cargo build --release --verbose
       
       - name: Build Release (Windows MinGW)
         if: runner.os == 'Windows' && inputs.release-build
-        run: cargo build-full --release --verbose --target x86_64-pc-windows-gnu
+        run: cargo build --release --verbose --target x86_64-pc-windows-gnu
       
       - name: Verify vendored LLVM
         run: |
@@ -274,11 +274,11 @@ jobs:
       
       - name: Test Release (Non-Windows)
         if: runner.os != 'Windows' && inputs.release-build
-        run: cargo test-full --verbose
+        run: cargo test --release --verbose
       
       - name: Test Release (Windows MinGW)
         if: runner.os == 'Windows' && inputs.release-build
-        run: cargo test-full --verbose --target x86_64-pc-windows-gnu
+        run: cargo test --release --verbose --target x86_64-pc-windows-gnu
       
       - name: Clippy (Non-Windows)
         if: runner.os != 'Windows'
@@ -296,68 +296,71 @@ jobs:
       
       # Package artifacts (only for release builds)
       - name: Prepare infc Artifact Package (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts
+        if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         run: |
           New-Item -ItemType Directory -Force -Path artifact-infc\bin
-          New-Item -ItemType Directory -Force -Path artifact-infc\lib
           Copy-Item target\x86_64-pc-windows-gnu\release\infc.exe artifact-infc\
           Copy-Item book\check_deps.ps1 artifact-infc\
           Copy-Item external\bin\windows\inf-llc.exe artifact-infc\bin\
           Copy-Item external\bin\windows\rust-lld.exe artifact-infc\bin\
+          Copy-Item external\bin\libLLVM-21.dll artifact-infc\bin\
 
       - name: Prepare infs Artifact Package (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts
+        if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         run: |
           New-Item -ItemType Directory -Force -Path artifact-infs\bin
-          New-Item -ItemType Directory -Force -Path artifact-infs\lib
           Copy-Item target\x86_64-pc-windows-gnu\release\infs.exe artifact-infs\
+          Copy-Item book\check_deps.ps1 artifact-infs\
           Copy-Item external\bin\windows\inf-llc.exe artifact-infs\bin\
           Copy-Item external\bin\windows\rust-lld.exe artifact-infs\bin\
+          Copy-Item external\bin\libLLVM-21.dll artifact-infs\bin\
       
       - name: Prepare infc Artifact Package (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts
+        if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         run: |
           mkdir -p artifact-infc/bin
           mkdir -p artifact-infc/lib
           cp target/release/infc artifact-infc/
-          cp target/release/bin/* artifact-infc/bin/
-          cp target/release/lib/* artifact-infc/lib/
+          cp target/release/bin/* artifact-infc/bin/ || true
+          cp target/release/lib/* artifact-infc/lib/ || true
 
       - name: Prepare infs Artifact Package (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts
+        if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         run: |
           mkdir -p artifact-infs/bin
           mkdir -p artifact-infs/lib
           cp target/release/infs artifact-infs/
-          cp target/release/bin/* artifact-infs/bin/
-          cp target/release/lib/* artifact-infs/lib/
+          cp target/release/bin/* artifact-infs/bin/ || true
+          cp target/release/lib/* artifact-infs/lib/ || true
       
       - name: Package infc Artifact (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts
+        if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         run: |
           7z a -tzip infc-windows-x64.zip .\artifact-infc\*
-          certutil -hashfile infc-windows-x64.zip SHA256 > infc-windows-x64.zip.sha256
+          $hash = (Get-FileHash infc-windows-x64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  infc-windows-x64.zip" | Out-File -Encoding ascii infc-windows-x64.zip.sha256
 
       - name: Package infs Artifact (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts
+        if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         run: |
           7z a -tzip infs-windows-x64.zip .\artifact-infs\*
-          certutil -hashfile infs-windows-x64.zip SHA256 > infs-windows-x64.zip.sha256
+          $hash = (Get-FileHash infs-windows-x64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  infs-windows-x64.zip" | Out-File -Encoding ascii infs-windows-x64.zip.sha256
       
       - name: Package infc Artifact (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts
+        if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         run: |
           tar -czf infc-linux-x64.tar.gz -C artifact-infc .
           sha256sum infc-linux-x64.tar.gz > infc-linux-x64.tar.gz.sha256
 
       - name: Package infs Artifact (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts
+        if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         run: |
           tar -czf infs-linux-x64.tar.gz -C artifact-infs .
           sha256sum infs-linux-x64.tar.gz > infs-linux-x64.tar.gz.sha256
       
       - name: Prepare infc Artifact Package (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts
+        if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         run: |
           mkdir -p artifact-infc/bin
           cp target/release/infc artifact-infc/
@@ -368,7 +371,7 @@ jobs:
           fi
 
       - name: Prepare infs Artifact Package (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts
+        if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         run: |
           mkdir -p artifact-infs/bin
           cp target/release/infs artifact-infs/
@@ -379,13 +382,13 @@ jobs:
           fi
       
       - name: Package infc Artifact (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts
+        if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         run: |
           tar -czf infc-macos-apple-silicon.tar.gz -C artifact-infc .
           shasum -a 256 infc-macos-apple-silicon.tar.gz > infc-macos-apple-silicon.tar.gz.sha256
 
       - name: Package infs Artifact (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts
+        if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         run: |
           tar -czf infs-macos-apple-silicon.tar.gz -C artifact-infs .
           shasum -a 256 infs-macos-apple-silicon.tar.gz > infs-macos-apple-silicon.tar.gz.sha256
@@ -422,7 +425,7 @@ jobs:
       
       # Always upload workflow artifacts when packaging - needed for manifest generation
       - name: Upload Workflow Artifact infc (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts
+        if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         uses: actions/upload-artifact@v4
         with:
           name: infc-windows-x64
@@ -432,7 +435,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infs (Windows)
-        if: runner.os == 'Windows' && inputs.package-artifacts
+        if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         uses: actions/upload-artifact@v4
         with:
           name: infs-windows-x64
@@ -442,7 +445,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infc (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts
+        if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         uses: actions/upload-artifact@v4
         with:
           name: infc-linux-x64
@@ -452,7 +455,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infs (Linux)
-        if: runner.os == 'Linux' && inputs.package-artifacts
+        if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         uses: actions/upload-artifact@v4
         with:
           name: infs-linux-x64
@@ -462,7 +465,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infc (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts
+        if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         uses: actions/upload-artifact@v4
         with:
           name: infc-macos-apple-silicon
@@ -472,7 +475,7 @@ jobs:
           compression-level: 0
 
       - name: Upload Workflow Artifact infs (macOS)
-        if: runner.os == 'macOS' && inputs.package-artifacts
+        if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         uses: actions/upload-artifact@v4
         with:
           name: infs-macos-apple-silicon

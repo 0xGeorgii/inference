@@ -15,15 +15,15 @@
 //! ## TUI Integration
 //!
 //! For TUI integration, use [`download_file_with_callback`] which reports
-//! progress via a callback instead of using indicatif progress bars.
+//! progress via a callback instead of printing to stdout.
 
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
 use tokio::io::AsyncWriteExt;
 
@@ -74,7 +74,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 300;
 /// Downloads a file from the given URL to the specified path with progress display.
 ///
 /// The download uses streaming to avoid loading the entire file into memory.
-/// Progress is displayed using an `indicatif` progress bar.
+/// Progress is displayed using simple text output to stdout.
 ///
 /// # Arguments
 ///
@@ -132,7 +132,10 @@ pub async fn download_file(url: &str, dest: &Path, expected_size: u64) -> Result
         .unwrap_or_else(|| anyhow::anyhow!("Download failed after {MAX_RETRIES} attempts")))
 }
 
-/// Downloads a file with progress bar display.
+/// Minimum interval between progress updates in milliseconds.
+const CLI_PROGRESS_INTERVAL_MS: u128 = 250;
+
+/// Downloads a file with simple text-based progress display.
 async fn download_with_progress(url: &str, dest: &Path, expected_size: u64) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
@@ -151,20 +154,14 @@ async fn download_with_progress(url: &str, dest: &Path, expected_size: u64) -> R
 
     let total_size = response.content_length().unwrap_or(expected_size);
 
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-            .expect("Progress bar template should be valid")
-            .progress_chars("#>-"),
-    );
-
     let mut file = tokio::fs::File::create(dest)
         .await
         .with_context(|| format!("Failed to create file: {}", dest.display()))?;
 
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
+    let start_time = Instant::now();
+    let mut last_update = Instant::now();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.with_context(|| format!("Failed to read chunk from {url}"))?;
@@ -172,16 +169,79 @@ async fn download_with_progress(url: &str, dest: &Path, expected_size: u64) -> R
             .await
             .with_context(|| format!("Failed to write to {}", dest.display()))?;
         downloaded += chunk.len() as u64;
-        pb.set_position(downloaded);
+
+        let now = Instant::now();
+        if now.duration_since(last_update).as_millis() >= CLI_PROGRESS_INTERVAL_MS {
+            print_progress(downloaded, total_size, start_time.elapsed().as_secs_f64());
+            last_update = now;
+        }
     }
 
     file.flush()
         .await
         .with_context(|| format!("Failed to flush {}", dest.display()))?;
 
-    pb.finish_with_message("Download complete");
+    print_progress(downloaded, total_size, start_time.elapsed().as_secs_f64());
+    println!();
 
     Ok(())
+}
+
+/// Prints a simple text-based progress line.
+#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_sign_loss)]
+fn print_progress(downloaded: u64, total: u64, elapsed_secs: f64) {
+    let percent = if total > 0 {
+        (downloaded as f64 / total as f64 * 100.0) as u8
+    } else {
+        0
+    };
+    let speed = if elapsed_secs > 0.0 {
+        downloaded as f64 / elapsed_secs
+    } else {
+        0.0
+    };
+    let speed_str = format_speed(speed);
+    let downloaded_str = format_bytes(downloaded);
+    let total_str = format_bytes(total);
+
+    print!("\r{downloaded_str}/{total_str} ({percent}%) {speed_str}     ");
+    let _ = std::io::stdout().flush();
+}
+
+/// Formats bytes into a human-readable string (KB, MB, GB).
+fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+
+    #[allow(clippy::cast_precision_loss)]
+    let bytes_f = bytes as f64;
+
+    if bytes_f >= GB {
+        format!("{:.2} GB", bytes_f / GB)
+    } else if bytes_f >= MB {
+        format!("{:.2} MB", bytes_f / MB)
+    } else if bytes_f >= KB {
+        format!("{:.2} KB", bytes_f / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Formats speed (bytes/sec) into a human-readable string.
+fn format_speed(speed: f64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+
+    if speed >= MB {
+        format!("{:.2} MB/s", speed / MB)
+    } else if speed >= KB {
+        format!("{:.2} KB/s", speed / KB)
+    } else {
+        format!("{speed:.0} B/s")
+    }
 }
 
 /// Calculates the retry delay with exponential backoff and jitter.
@@ -250,8 +310,8 @@ const PROGRESS_CALLBACK_INTERVAL_MS: u128 = 100;
 /// Downloads a file with progress callbacks for TUI integration.
 ///
 /// Unlike [`download_file`], this function reports progress via a callback
-/// instead of using an indicatif progress bar. This allows integration with
-/// custom progress displays like the TUI.
+/// instead of printing to stdout. This allows integration with custom
+/// progress displays like the TUI.
 ///
 /// # Arguments
 ///
