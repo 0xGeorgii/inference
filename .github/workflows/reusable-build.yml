@@ -308,12 +308,8 @@ jobs:
       - name: Prepare infs Artifact Package (Windows)
         if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
         run: |
-          New-Item -ItemType Directory -Force -Path artifact-infs\bin
+          New-Item -ItemType Directory -Force -Path artifact-infs
           Copy-Item target\x86_64-pc-windows-gnu\release\infs.exe artifact-infs\
-          Copy-Item book\check_deps.ps1 artifact-infs\
-          Copy-Item external\bin\windows\inf-llc.exe artifact-infs\bin\
-          Copy-Item external\bin\windows\rust-lld.exe artifact-infs\bin\
-          Copy-Item external\bin\libLLVM-21.dll artifact-infs\bin\
       
       - name: Prepare infc Artifact Package (Linux)
         if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
@@ -327,11 +323,8 @@ jobs:
       - name: Prepare infs Artifact Package (Linux)
         if: runner.os == 'Linux' && inputs.package-artifacts && inputs.release-build
         run: |
-          mkdir -p artifact-infs/bin
-          mkdir -p artifact-infs/lib
+          mkdir -p artifact-infs
           cp target/release/infs artifact-infs/
-          cp target/release/bin/* artifact-infs/bin/ || true
-          cp target/release/lib/* artifact-infs/lib/ || true
       
       - name: Package infc Artifact (Windows)
         if: runner.os == 'Windows' && inputs.package-artifacts && inputs.release-build
@@ -373,13 +366,8 @@ jobs:
       - name: Prepare infs Artifact Package (macOS)
         if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
         run: |
-          mkdir -p artifact-infs/bin
+          mkdir -p artifact-infs
           cp target/release/infs artifact-infs/
-          cp target/release/bin/* artifact-infs/bin/ || true
-          if [ -d target/release/lib ] && [ "$(ls -A target/release/lib)" ]; then
-            mkdir -p artifact-infs/lib
-            cp target/release/lib/* artifact-infs/lib/
-          fi
       
       - name: Package infc Artifact (macOS)
         if: runner.os == 'macOS' && inputs.package-artifacts && inputs.release-build
