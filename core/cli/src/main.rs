@@ -167,8 +167,6 @@ use std::{
 /// - Phase execution is sequential (no parallelization)
 #[allow(clippy::too_many_lines)]
 fn main() {
-    eprintln!("Warning: 'infc' is deprecated. Please use 'infs build' instead.");
-
     let args = Cli::parse();
     if !args.path.exists() {
         eprintln!("Error: path not found");

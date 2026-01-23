@@ -12,7 +12,20 @@
 //! 2. **Check** - Verify wasmtime is available in PATH
 //! 3. **Locate** - Find the infc compiler binary
 //! 4. **Compile** - Call infc with `--parse --codegen -o` to generate WASM
-//! 5. **Execute** - Run WASM with wasmtime, passing arguments
+//! 5. **Execute** - Run WASM with wasmtime using `--invoke`
+//!
+//! ## Entry Points
+//!
+//! By default, the `main` function is invoked. Use `--entry-point` to call
+//! a different exported function:
+//!
+//! ```bash
+//! infs run program.inf                        # Invokes main()
+//! infs run program.inf --entry-point helper   # Invokes helper()
+//! ```
+//!
+//! For `main`, argc/argv arguments (0, 0) are passed automatically.
+//! For other functions, trailing arguments are passed as function parameters.
 //!
 //! ## Prerequisites
 //!
@@ -31,13 +44,23 @@ use crate::toolchain::find_infc;
 /// Arguments for the run command.
 ///
 /// The run command compiles source to WASM and executes it with wasmtime.
-/// Any arguments after the source path are passed to the WASM program.
+/// Any arguments after the source path are passed to the invoked function.
 #[derive(Args)]
 pub struct RunArgs {
     /// Path to the source file to run.
     pub path: PathBuf,
 
-    /// Arguments to pass to the WASM program.
+    /// Function to invoke as entry point.
+    ///
+    /// Defaults to "main". The function must be exported (marked `pub` in source).
+    /// For `main`, argc/argv arguments (0 0) are passed automatically.
+    #[clap(long, default_value = "main")]
+    pub entry_point: String,
+
+    /// Arguments to pass to the invoked function.
+    ///
+    /// For functions other than `main`, these are passed directly as function arguments.
+    /// For `main`, these are ignored (argc=0, argv=0 is always used).
     #[clap(trailing_var_arg = true)]
     pub args: Vec<String>,
 }
@@ -78,7 +101,7 @@ pub fn execute(args: &RunArgs) -> Result<()> {
 
     let wasm_path = compile_to_wasm(&infc_path, &args.path)?;
 
-    run_wasmtime(&wasm_path, &args.args)
+    run_wasmtime(&wasm_path, &args.entry_point, &args.args)
 }
 
 /// Checks if wasmtime is available in PATH.
@@ -137,31 +160,51 @@ fn compile_to_wasm(infc_path: &PathBuf, source_path: &PathBuf) -> Result<PathBuf
     Ok(wasm_path)
 }
 
-/// Runs wasmtime with the given WASM file and arguments.
+/// Runs wasmtime with the given WASM file, invoking a specific function.
+///
+/// Uses `--invoke <entry_point>` to call the specified exported function.
+/// For `main`, automatically passes argc=0, argv=0 arguments.
+/// For other functions, passes user-provided arguments.
+///
+/// Stderr is captured and only displayed if wasmtime fails, to suppress
+/// the experimental feature warnings about `--invoke` that appear on success.
 ///
 /// Returns `Ok(())` on success, or `Err(InfsError::ProcessExitCode)` if wasmtime
 /// exits with a non-zero code. This allows the caller to propagate the exit code
 /// without bypassing RAII cleanup.
-fn run_wasmtime(wasm_path: &PathBuf, args: &[String]) -> Result<()> {
-    println!("Running with wasmtime...");
+fn run_wasmtime(wasm_path: &PathBuf, entry_point: &str, args: &[String]) -> Result<()> {
+    println!("Invoking '{entry_point}' with wasmtime...");
 
     let mut cmd = Command::new("wasmtime");
-    cmd.arg(wasm_path);
-    for arg in args {
-        cmd.arg(arg);
+    cmd.arg("--invoke").arg(entry_point).arg(wasm_path);
+
+    if entry_point == "main" {
+        // main(argc: i32, argv: i32) -> i32 requires two arguments
+        cmd.arg("0").arg("0");
+    } else {
+        for arg in args {
+            cmd.arg(arg);
+        }
     }
 
-    let status = cmd
+    let output = cmd
         .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status()
+        .output()
         .with_context(|| "Failed to execute wasmtime")?;
 
-    if status.success() {
+    // Print stdout (the function's return value)
+    if !output.stdout.is_empty() {
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+    }
+
+    if output.status.success() {
         Ok(())
     } else {
-        let code = status.code().unwrap_or(1);
+        // Only show stderr on failure (hides experimental warnings on success)
+        if !output.stderr.is_empty() {
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        }
+        let code = output.status.code().unwrap_or(1);
         Err(InfsError::process_exit_code(code).into())
     }
 }

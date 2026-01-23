@@ -1,26 +1,26 @@
-fn hello_uzumaki() -> i32 {
+pub fn hello_uzumaki() -> i32 {
     return @;
 }
 
-fn hello_world() {
+pub fn hello_world() {
     forall {
         const a: i32 = 42;
     }
 }
 
-fn hello_exists() {
+pub fn hello_exists() {
     exists {
         const a: i32 = 42;
     }
 }
 
-fn hello_assume() {
+pub fn hello_assume() {
     assume {
         const a: i32 = 42;
     }
 }
 
-fn hello_unique() {
+pub fn hello_unique() {
     unique {
         const a: i32 = 42;
     }

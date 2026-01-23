@@ -381,36 +381,17 @@ fn headless_mode_without_command_shows_info() {
         .stdout(predicate::str::contains("--help").or(predicate::str::contains("build")));
 }
 
-/// Verifies that the TUI is skipped when CI=true environment variable is set.
+/// Verifies that the TUI is skipped when `INFS_NO_TUI` environment variable is set.
 ///
-/// **Test setup**: Sets CI=true environment variable and runs infs without subcommand.
-/// This simulates running in a CI environment where interactive TUI should not launch.
-///
-/// **Expected behavior**: Exit with code 0 and display informational output (same as headless mode).
-/// The TUI should NOT be launched because the headless detection recognizes the CI environment.
-#[test]
-fn tui_detects_ci_environment() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("CI", "true");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("infs"))
-        .stdout(predicate::str::contains("--help").or(predicate::str::contains("build")));
-}
-
-/// Verifies that the TUI is skipped when `NO_COLOR` environment variable is set.
-///
-/// **Test setup**: Sets `NO_COLOR=1` environment variable and runs infs without subcommand.
-/// The `NO_COLOR` convention (<https://no-color.org/>) indicates the user prefers no ANSI colors,
-/// which typically also indicates a headless or non-interactive environment.
+/// **Test setup**: Sets `INFS_NO_TUI=1` environment variable and runs infs without subcommand.
+/// This is the dedicated way to disable the interactive TUI in non-interactive environments.
 ///
 /// **Expected behavior**: Exit with code 0 and display informational output (same as headless mode).
-/// The TUI should NOT be launched because the headless detection recognizes the `NO_COLOR` setting.
+/// The TUI should NOT be launched because the headless detection recognizes the `INFS_NO_TUI` setting.
 #[test]
-fn tui_detects_no_color_environment() {
+fn tui_detects_infs_no_tui_environment() {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("NO_COLOR", "1");
+    cmd.env("INFS_NO_TUI", "1");
 
     cmd.assert()
         .success()
@@ -1529,7 +1510,9 @@ fn run_full_workflow_with_wasmtime() {
     cmd.env("INFC_PATH", &infc_path)
         .current_dir(temp.path())
         .arg("run")
-        .arg(dest.path());
+        .arg(dest.path())
+        .arg("--entry-point")
+        .arg("hello_world");
 
     cmd.assert().success();
 }

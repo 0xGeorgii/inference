@@ -13,8 +13,7 @@
 //! ## Headless Detection
 //!
 //! The TUI will not launch in headless environments:
-//! - When `CI=true` or `CI=1` environment variable is set
-//! - When `NO_COLOR` environment variable is set (any value)
+//! - When `INFS_NO_TUI` environment variable is set (any value)
 //! - When stdout is not a terminal (piped or redirected)
 //!
 //! ## Modules
@@ -45,22 +44,13 @@ use terminal::TerminalGuard;
 /// Determines whether the TUI should be used based on environment.
 ///
 /// Returns `false` in headless environments:
-/// - `CI=true` or `CI=1` environment variable
-/// - `NO_COLOR` environment variable (any value)
+/// - `INFS_NO_TUI` environment variable (any value)
 /// - Non-TTY stdout (piped or redirected)
 #[must_use]
 pub fn should_use_tui() -> bool {
-    if let Ok(ci) = std::env::var("CI") {
-        let ci_lower = ci.to_lowercase();
-        if ci_lower == "true" || ci_lower == "1" {
-            return false;
-        }
-    }
-
-    if std::env::var("NO_COLOR").is_ok() {
+    if std::env::var("INFS_NO_TUI").is_ok() {
         return false;
     }
-
     std::io::stdout().is_terminal()
 }
 
@@ -154,59 +144,28 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn should_use_tui_respects_ci_env() {
+    fn should_use_tui_respects_infs_no_tui_env() {
         // Save original value
-        let original = std::env::var("CI").ok();
+        let original = std::env::var("INFS_NO_TUI").ok();
 
         // SAFETY: This test is marked #[serial_test::serial] to ensure exclusive
         // access to environment variables. No other tests run concurrently.
         unsafe {
-            std::env::set_var("CI", "true");
+            std::env::set_var("INFS_NO_TUI", "1");
         }
         assert!(!should_use_tui());
 
+        // Empty string still disables TUI (env var is set)
         unsafe {
-            std::env::set_var("CI", "1");
-        }
-        assert!(!should_use_tui());
-
-        unsafe {
-            std::env::set_var("CI", "TRUE");
+            std::env::set_var("INFS_NO_TUI", "");
         }
         assert!(!should_use_tui());
 
         // Restore original
         unsafe {
             match original {
-                Some(val) => std::env::set_var("CI", val),
-                None => std::env::remove_var("CI"),
-            }
-        }
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn should_use_tui_respects_no_color_env() {
-        // Save original value
-        let original = std::env::var("NO_COLOR").ok();
-
-        // SAFETY: This test is marked #[serial_test::serial] to ensure exclusive
-        // access to environment variables. No other tests run concurrently.
-        unsafe {
-            std::env::set_var("NO_COLOR", "1");
-        }
-        assert!(!should_use_tui());
-
-        unsafe {
-            std::env::set_var("NO_COLOR", "");
-        }
-        assert!(!should_use_tui());
-
-        // Restore original
-        unsafe {
-            match original {
-                Some(val) => std::env::set_var("NO_COLOR", val),
-                None => std::env::remove_var("NO_COLOR"),
+                Some(val) => std::env::set_var("INFS_NO_TUI", val),
+                None => std::env::remove_var("INFS_NO_TUI"),
             }
         }
     }

@@ -56,7 +56,7 @@
 #![allow(dead_code)]
 use crate::utils;
 use inference_ast::nodes::{
-    BlockType, Expression, FunctionDefinition, Literal, SimpleTypeKind, Statement, Type,
+    BlockType, Expression, FunctionDefinition, Literal, SimpleTypeKind, Statement, Type, Visibility,
 };
 use inference_type_checker::{
     type_info::{NumberType, TypeInfoKind},
@@ -140,6 +140,10 @@ pub(crate) struct Compiler<'ctx> {
 
     /// Variable storage mapping names to stack-allocated pointers and their types.
     variables: RefCell<HashMap<String, (PointerValue<'ctx>, BasicTypeEnum<'ctx>)>>,
+
+    /// Tracks whether a `main` function was compiled.
+    /// Used to conditionally export `main` during linking.
+    has_main: RefCell<bool>,
 }
 
 impl<'ctx> Compiler<'ctx> {
@@ -158,6 +162,7 @@ impl<'ctx> Compiler<'ctx> {
             module,
             builder,
             variables: RefCell::new(HashMap::new()),
+            has_main: RefCell::new(false), //TODO: revisit
         }
     }
 
@@ -250,10 +255,19 @@ impl<'ctx> Compiler<'ctx> {
         };
         let function = self.module.add_function(fn_name.as_str(), fn_type, None);
 
-        let export_name_attr = self
-            .context
-            .create_string_attribute("wasm-export-name", fn_name.as_str());
-        function.add_attribute(AttributeLoc::Function, export_name_attr);
+        // Only export public functions. Skip "main" - LLD handles its export specially
+        // to avoid duplicate export errors from the entry point wrapper.
+        let is_main = fn_name == "main";
+        let should_export = function_definition.visibility == Visibility::Public && !is_main;
+        if should_export {
+            let export_name_attr = self
+                .context
+                .create_string_attribute("wasm-export-name", fn_name.as_str());
+            function.add_attribute(AttributeLoc::Function, export_name_attr);
+        }
+        if is_main && function_definition.visibility == Visibility::Public {
+            *self.has_main.borrow_mut() = true;
+        }
         if function_definition.is_non_det() {
             self.add_optimization_barriers(function);
         }
@@ -840,6 +854,7 @@ impl<'ctx> Compiler<'ctx> {
         output_fname: &str,
         optimization_level: u32,
     ) -> anyhow::Result<Vec<u8>> {
-        utils::compile_to_wasm(&self.module, output_fname, optimization_level)
+        let has_main = *self.has_main.borrow();
+        utils::compile_to_wasm(&self.module, output_fname, optimization_level, has_main)
     }
 }

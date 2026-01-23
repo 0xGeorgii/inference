@@ -79,11 +79,16 @@ use errors::InfsError;
     long_about = "The 'infs' command is the unified entry point for the Inference programming \
     language toolchain. Use subcommands like 'build' to compile source files.",
     after_help = "\
+COMPILER RESOLUTION:
+    The infc compiler is located using the following priority order:
+    1. INFC_PATH environment variable (explicit override)
+    2. System PATH (via 'which infc')
+    3. Managed toolchain (~/.infs/toolchains/VERSION/bin/infc)
+
 ENVIRONMENT VARIABLES:
-    CI              When set to 'true' or '1', disables the interactive TUI
-    NO_COLOR        When set (any value), disables the interactive TUI
-    INFC_PATH       Override the path to the infc compiler binary
-    INFS_HOME       Override the toolchain installation directory (default: ~/.infs)
+    INFS_NO_TUI         When set (any value), disables the interactive TUI
+    INFC_PATH           Explicit path to the infc compiler binary (priority 1)
+    INFS_HOME           Toolchain installation directory (default: ~/.infs)
     INFS_GITHUB_REPO    Override the GitHub repository for toolchain downloads
     INFS_MANIFEST_URL   Override the URL for the release manifest"
 )]

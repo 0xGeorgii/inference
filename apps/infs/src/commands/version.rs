@@ -37,33 +37,19 @@ fn print_verbose_version() {
     println!("infs {}", env!("CARGO_PKG_VERSION"));
     println!();
     println!("Build Information:");
-    println!("  Version:     {}", env!("CARGO_PKG_VERSION"));
-    println!("  Build date:  {}", build_date());
-    println!("  Platform:    {}", platform_string());
-    println!("  Rust:        {}", rustc_version());
-    println!();
-    println!("Features:");
-    println!("  Toolchain management: enabled");
-    println!("  Project management:   enabled");
+    println!("  Version:  {}", env!("CARGO_PKG_VERSION"));
+    println!("  Commit:   {}", git_commit());
+    println!("  Platform: {}", platform_string());
 }
 
-/// Returns the build date from environment or a fallback.
-fn build_date() -> &'static str {
-    option_env!("INFS_BUILD_DATE").unwrap_or("unknown")
+/// Returns the git commit hash from environment or a fallback.
+fn git_commit() -> &'static str {
+    option_env!("INFS_GIT_COMMIT").unwrap_or("unknown")
 }
 
 /// Returns a human-readable platform string.
 fn platform_string() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
-}
-
-/// Returns the Rust compiler version.
-fn rustc_version() -> &'static str {
-    const RUST_VERSION: Option<&str> = option_env!("CARGO_PKG_RUST_VERSION");
-    match RUST_VERSION {
-        Some(v) if !v.is_empty() => v,
-        _ => "unknown",
-    }
 }
 
 #[cfg(test)]
@@ -92,14 +78,8 @@ mod tests {
     }
 
     #[test]
-    fn build_date_returns_value() {
-        let date = build_date();
-        assert!(!date.is_empty());
-    }
-
-    #[test]
-    fn rustc_version_returns_value() {
-        let version = rustc_version();
-        assert!(!version.is_empty());
+    fn git_commit_returns_value() {
+        let commit = git_commit();
+        assert!(!commit.is_empty());
     }
 }

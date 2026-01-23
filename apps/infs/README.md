@@ -171,14 +171,19 @@ The TUI provides:
 ### Headless Mode
 
 The TUI is automatically disabled in non-interactive environments:
-- When `CI=true` or `CI=1` environment variable is set
-- When `NO_COLOR` environment variable is set
+- When `INFS_NO_TUI` environment variable is set (any value)
 - When stdout is not a terminal
 
 Force headless mode explicitly:
 
 ```bash
 infs --headless
+```
+
+Or via environment variable:
+
+```bash
+INFS_NO_TUI=1 infs
 ```
 
 ## Architecture
@@ -199,6 +204,43 @@ Some commands require external tools:
 | `infs verify` | coqc (Rocq/Coq) |
 
 Run `infs doctor` to check if all dependencies are available.
+
+## Compiler Resolution
+
+When running `build`, `run`, or `verify` commands, `infs` locates the `infc` compiler using the following priority order:
+
+| Priority | Source | Description |
+|----------|--------|-------------|
+| 1 (highest) | `INFC_PATH` env var | Explicit path to a specific `infc` binary |
+| 2 | System PATH | Searches for `infc` in system PATH via `which` |
+| 3 (lowest) | Managed toolchain | Uses `~/.infs/toolchains/VERSION/bin/infc` |
+
+### When to Use Each
+
+**Priority 1 - INFC_PATH**: Use for development, testing, or CI/CD with a pre-built binary:
+```bash
+export INFC_PATH=/path/to/custom/infc
+infs build example.inf --codegen -o
+```
+
+**Priority 2 - System PATH**: Automatic if `infc` is installed system-wide (e.g., via package manager).
+
+**Priority 3 - Managed Toolchain**: Default for end users after running `infs install`:
+```bash
+infs install           # Downloads to ~/.infs/toolchains/
+infs default 0.1.0     # Sets default version
+infs build example.inf # Uses managed toolchain
+```
+
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `INFS_NO_TUI` | Disable interactive TUI (any value) |
+| `INFC_PATH` | Explicit path to `infc` binary (priority 1) |
+| `INFS_HOME` | Toolchain installation directory (default: `~/.infs`) |
+| `INFS_GITHUB_REPO` | Override GitHub repository for downloads |
+| `INFS_MANIFEST_URL` | Override release manifest URL |
 
 ## Development
 

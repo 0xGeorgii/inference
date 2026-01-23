@@ -26,6 +26,52 @@
 //! 2. Run inf-llc to compile to `.o` object file
 //! 3. Run rust-lld to link object file into `.wasm` module
 //! 4. Read WASM bytes and clean up temporary files
+//!
+//! # WebAssembly Execution Model
+//!
+//! Inference uses the **reactor model** rather than the command model for WebAssembly modules.
+//!
+//! ## Command Model (Rust, Zig, C with WASI)
+//!
+//! Languages like Rust and Zig targeting `wasm32-wasi` generate a `_start` entry point:
+//!
+//! ```text
+//! _start() → runtime initialization → main() → exit
+//! ```
+//!
+//! Execution: `wasmtime module.wasm` (automatically calls `_start`)
+//!
+//! ## Reactor Model (Inference)
+//!
+//! Inference targets `wasm32-unknown-unknown` and produces modules without an entry point.
+//! Functions marked `pub` are exported and can be called individually:
+//!
+//! ```text
+//! pub fn main() → exported as "main"
+//! pub fn foo()  → exported as "foo"
+//! fn bar()      → not exported (private)
+//! ```
+//!
+//! Execution: `wasmtime --invoke main module.wasm 0 0`
+//!
+//! ## Why Reactor Model?
+//!
+//! - **Simplicity**: No runtime initialization overhead
+//! - **Flexibility**: Multiple entry points, caller chooses which function to invoke
+//! - **Embedding**: Better suited for embedding in host applications
+//! - **Verification**: Aligns with formal verification where functions are verified individually
+//!
+//! ## Linker Flags
+//!
+//! - `--no-entry`: Tells LLD there's no `_start` function (reactor mode)
+//! - `--export=main`: Explicitly exports `main` if present (LLD creates argc/argv wrapper)
+//!
+//! ## Future Consideration
+//!
+//! If WASI command-style execution is needed, the compiler would need to:
+//! 1. Generate a `_start` function calling `main`
+//! 2. Remove `--no-entry` flag
+//! 3. Optionally switch target to `wasm32-wasi`
 
 use std::{path::PathBuf, process::Command};
 
@@ -49,6 +95,7 @@ use tempfile::tempdir;
 /// - `module` - LLVM module containing the IR to compile
 /// - `output_fname` - Base filename for intermediate files (extensions added automatically)
 /// - `optimization_level` - LLVM optimization level (0-3, clamped to max 3)
+/// - `has_main` - Whether to export a `main` function (only if the module contains one)
 ///
 /// # Returns
 ///
@@ -66,6 +113,7 @@ pub(crate) fn compile_to_wasm(
     module: &Module,
     output_fname: &str,
     optimization_level: u32,
+    has_main: bool,
 ) -> anyhow::Result<Vec<u8>> {
     let llc_path = get_inf_llc_path()?;
     let temp_dir = tempdir()?;
@@ -100,15 +148,15 @@ pub(crate) fn compile_to_wasm(
     let wasm_path = temp_dir.path().join(output_fname).with_extension("wasm");
     let mut lld_cmd = Command::new(&rust_lld_path);
     configure_llvm_env(&mut lld_cmd)?;
-    let wasm_lld_output = lld_cmd
+    lld_cmd
         .arg("-flavor")
         .arg("wasm")
         .arg(&obj_path)
-        .arg("--no-entry")
-        // .arg("--export=hello_world")
-        .arg("-o")
-        .arg(&wasm_path)
-        .output()?;
+        .arg("--no-entry");
+    if has_main {
+        lld_cmd.arg("--export=main");
+    }
+    let wasm_lld_output = lld_cmd.arg("-o").arg(&wasm_path).output()?;
 
     if !wasm_lld_output.status.success() {
         return Err(anyhow::anyhow!(
