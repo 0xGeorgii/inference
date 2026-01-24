@@ -1583,3 +1583,51 @@ fn verify_full_workflow_with_coqc() {
         );
     }
 }
+
+/// Returns the path to the syntax_`error.inf` test file.
+fn syntax_error_file() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("syntax_error.inf")
+}
+
+/// **Expected behavior**: Exit with non-zero code, meaningful error message, NO PANIC.
+#[test]
+fn run_fails_gracefully_on_syntax_error() {
+    let syntax_error_file = syntax_error_file();
+
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .arg("run")
+        .arg(&syntax_error_file);
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("error")
+            .or(predicate::str::contains("Error"))
+            .or(predicate::str::contains("Syntax")),
+    );
+}
+
+/// **Expected behavior**: Exit with non-zero code, meaningful error message, NO PANIC.
+#[test]
+fn build_fails_gracefully_on_syntax_error() {
+    let syntax_error_file = syntax_error_file();
+
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .arg("build")
+        .arg(&syntax_error_file)
+        .arg("--parse");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("error")
+            .or(predicate::str::contains("Error"))
+            .or(predicate::str::contains("Syntax")),
+    );
+}

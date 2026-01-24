@@ -204,8 +204,10 @@ pub fn parse(source_code: &str) -> anyhow::Result<Arena> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&inference_language)
-        .expect("Error loading Inference grammar");
-    let tree = parser.parse(source_code, None).unwrap();
+        .map_err(|e| anyhow::anyhow!("Failed to load Inference grammar: {e}"))?;
+    let tree = parser
+        .parse(source_code, None)
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse source code"))?;
     let code = source_code.as_bytes();
     let root_node = tree.root_node();
     let mut builder = Builder::new();

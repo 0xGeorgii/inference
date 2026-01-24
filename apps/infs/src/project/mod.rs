@@ -3,35 +3,29 @@
 //! Project management module.
 //!
 //! This module provides functionality for creating and managing Inference
-//! projects, including manifest handling, project scaffolding, and templates.
+//! projects, including manifest handling and project scaffolding.
 //!
 //! ## Modules
 //!
 //! - [`manifest`] - Inference.toml parsing and validation
-//! - [`templates`] - Project template system
 //! - [`scaffold`] - Project creation and initialization
 //!
 //! ## Key Types
 //!
 //! - [`InferenceToml`] - The manifest file structure
 //! - [`ProjectConfig`] - Loaded and validated project configuration
-//! - [`ProjectTemplate`] - Trait for project templates
 
 pub mod manifest;
 pub mod scaffold;
-pub mod templates;
 
+#[allow(unused_imports)]
+pub use manifest::validate_project_name;
 pub use manifest::{BuildConfig, InferenceToml, VerificationConfig};
 #[allow(unused_imports)]
 pub use manifest::{Dependencies, Package};
 #[allow(unused_imports)]
-pub use manifest::validate_project_name;
-pub use scaffold::{create_project, init_project};
-#[allow(unused_imports)]
 pub use scaffold::create_project_default;
-pub use templates::{ProjectTemplate, available_templates, get_template};
-#[allow(unused_imports)]
-pub use templates::{DefaultTemplate, TemplateFile};
+pub use scaffold::{create_project, init_project};
 
 /// Represents a loaded and validated project configuration.
 ///
@@ -45,9 +39,6 @@ pub struct ProjectConfig {
 
     /// The project version.
     pub version: String,
-
-    /// The language edition.
-    pub edition: String,
 
     /// Build configuration.
     pub build: BuildConfig,
@@ -72,7 +63,6 @@ impl ProjectConfig {
         Self {
             name: manifest.package.name.clone(),
             version: manifest.package.version.clone(),
-            edition: manifest.package.edition.clone(),
             build: manifest.build.clone(),
             verification: manifest.verification.clone(),
         }
@@ -104,6 +94,5 @@ mod tests {
 
         assert_eq!(config.name, "test_project");
         assert_eq!(config.version, "0.1.0");
-        assert_eq!(config.edition, "2024");
     }
 }

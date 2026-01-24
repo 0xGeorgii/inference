@@ -50,10 +50,7 @@ pub fn execute(args: &InitArgs) -> Result<()> {
 
     init_project(None, name, true)?;
 
-    let display_name = name.map_or_else(
-        || String::from("current directory"),
-        String::from,
-    );
+    let display_name = name.map_or_else(|| String::from("current directory"), String::from);
 
     println!("Initialized Inference project in {display_name}");
     println!();
@@ -61,7 +58,7 @@ pub fn execute(args: &InitArgs) -> Result<()> {
     println!("  infs build src/main.inf --codegen -o");
     println!();
     println!("To learn more about Inference, visit:");
-    println!("  https://inferara.com");
+    println!("  https://inference-lang.org");
 
     Ok(())
 }

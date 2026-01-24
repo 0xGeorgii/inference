@@ -5,7 +5,7 @@ Unified command-line interface for the Inference compiler toolchain.
 ## Features
 
 - **Compilation**: Build, run, and verify Inference source files
-- **Project Management**: Create and initialize projects with templates
+- **Project Management**: Create and initialize Inference projects
 - **Toolchain Management**: Install, uninstall, and switch between toolchain versions
 - **Interactive TUI**: Terminal user interface for visual project management
 - **Doctor**: Diagnose installation and environment issues
@@ -117,11 +117,8 @@ Requires `coqc` (Rocq/Coq compiler) to be installed.
 ### Project Commands
 
 ```bash
-# Create a new project with standard template
+# Create a new project
 infs new myproject
-
-# Create with library template
-infs new mylib --template lib
 
 # Initialize in current directory
 infs init
@@ -192,7 +189,7 @@ This crate is the unified CLI that orchestrates:
 
 - **`core/inference`** - Compilation pipeline (parse, type_check, analyze, codegen, wasm_to_v)
 - **Toolchain management** - Version installation and switching
-- **Project scaffolding** - Templates and project structure
+- **Project scaffolding** - Project creation and initialization
 
 ### External Dependencies
 
@@ -260,7 +257,7 @@ cargo test -p infs
 - Command argument parsing
 - Build phases (parse, analyze, codegen)
 - Output generation (WASM, Rocq)
-- Project scaffolding and templates
+- Project scaffolding
 - Toolchain management operations
 - TUI navigation and command execution
 - Error handling and edge cases

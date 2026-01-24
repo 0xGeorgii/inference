@@ -7,15 +7,14 @@
 //! ## Usage
 //!
 //! ```bash
-//! infs new myproject                    # Create with default template
+//! infs new myproject                    # Create project in current directory
 //! infs new myproject --no-git           # Skip git initialization
 //! infs new myproject ./path             # Create in specified directory
-//! infs new myproject --template default # Use specific template
 //! ```
 //!
 //! ## Project Structure
 //!
-//! The default template creates the following structure:
+//! Creates the following structure:
 //!
 //! ```text
 //! myproject/
@@ -33,11 +32,10 @@ use anyhow::Result;
 use clap::Args;
 use std::path::PathBuf;
 
-use crate::project::{available_templates, create_project, get_template};
+use crate::project::create_project;
 
 /// Arguments for the `new` command.
 #[derive(Args)]
-#[command(after_help = "TIPS:\n    Run 'infs new --list-templates' to see all available project templates.")]
 pub struct NewArgs {
     /// Name of the project to create.
     ///
@@ -50,13 +48,6 @@ pub struct NewArgs {
     #[clap(default_value = ".")]
     pub path: PathBuf,
 
-    /// Project template to use.
-    ///
-    /// Templates define the initial file structure and content.
-    /// Use `--list-templates` to see available templates.
-    #[clap(long, default_value = "default")]
-    pub template: String,
-
     /// Skip git repository initialization.
     ///
     /// By default, `infs new` initializes a git repository in the
@@ -64,10 +55,6 @@ pub struct NewArgs {
     /// without git.
     #[clap(long = "no-git", action = clap::ArgAction::SetTrue)]
     pub no_git: bool,
-
-    /// List available project templates.
-    #[clap(long = "list-templates", action = clap::ArgAction::SetTrue)]
-    pub list_templates: bool,
 }
 
 /// Executes the `new` command.
@@ -79,30 +66,8 @@ pub struct NewArgs {
 /// Returns an error if:
 /// - The project name is invalid (reserved word or invalid characters)
 /// - The target directory already exists
-/// - The template is not found
 /// - File creation fails
 pub fn execute(args: &NewArgs) -> Result<()> {
-    if args.list_templates {
-        println!("Available templates:");
-        println!();
-        for (name, description) in available_templates() {
-            println!("  {name:<12} - {description}");
-        }
-        return Ok(());
-    }
-
-    let template = get_template(&args.template).ok_or_else(|| {
-        let available: Vec<_> = available_templates()
-            .iter()
-            .map(|(name, _)| format!("  - {name}"))
-            .collect();
-        anyhow::anyhow!(
-            "Unknown template '{}'. Available templates:\n{}",
-            args.template,
-            available.join("\n")
-        )
-    })?;
-
     let init_git = !args.no_git;
     let parent = if args.path.as_os_str() == "." {
         None
@@ -110,16 +75,16 @@ pub fn execute(args: &NewArgs) -> Result<()> {
         Some(args.path.as_path())
     };
 
-    let project_path = create_project(&args.name, parent, template.as_ref(), init_git)?;
+    let project_path = create_project(&args.name, parent, init_git)?;
 
-    println!("Created project '{}' using template '{}'", args.name, args.template);
+    println!("Created project '{}'", args.name);
     println!();
     println!("Next steps:");
     println!("  cd {}", project_path.display());
     println!("  infs build src/main.inf --codegen -o");
     println!();
     println!("To learn more about Inference, visit:");
-    println!("  https://inferara.com");
+    println!("  https://inference-lang.org");
 
     Ok(())
 }

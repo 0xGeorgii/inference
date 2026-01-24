@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `infs` binaries to release artifacts for all platforms (Linux x64, Windows x64, macOS ARM64)
 - Update release manifest to schema version 2 with separate `infc` and `infs` tool entries
 
+### Project Manifest
+
+- Replace `manifest_version` field with `infc_version` in Inference.toml ([#96])
+  - `infc_version` is a String (semver format) that records the compiler version used to create the project
+  - Automatically detected from `infc --version` when running `infs new` or `infs init`
+  - Falls back to `infs` version if `infc` is not available
+  - All Inference ecosystem crates share the same version number
+
 ### Editor Support
 
 - Add VS Code extension with syntax highlighting for Inference language ([#94])
