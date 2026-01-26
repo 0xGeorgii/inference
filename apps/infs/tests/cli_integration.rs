@@ -801,7 +801,6 @@ fn install_uses_custom_dist_server() {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.env("INFS_HOME", temp.path())
         .env("INFS_DIST_SERVER", "http://invalid-test-server.localhost")
-        .env("INFS_MANIFEST_CACHE_TTL", "0")
         .arg("install");
 
     cmd.assert()
@@ -1278,127 +1277,6 @@ fn init_handles_permission_denied() {
     perms.set_mode(0o755);
     std::fs::set_permissions(readonly_dir.path(), perms).expect("Failed to restore permissions");
 }
-
-// =============================================================================
-// Phase 5: Verify Command Tests
-// =============================================================================
-
-// -----------------------------------------------------------------------------
-// Verify Command Tests
-// -----------------------------------------------------------------------------
-
-/// Verifies that `infs verify --help` displays the available options.
-///
-/// **Expected behavior**: Exit with code 0 and show path argument and options.
-#[test]
-fn verify_help_shows_options() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("verify").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("PATH").or(predicate::str::contains("path")))
-        .stdout(predicate::str::contains("--output-dir"))
-        .stdout(predicate::str::contains("--skip-compile"));
-}
-
-/// Verifies that `infs verify` requires a path argument.
-///
-/// **Expected behavior**: Exit with non-zero code when no path is provided.
-#[test]
-fn verify_requires_path_argument() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("verify");
-
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("PATH").or(predicate::str::contains("required")));
-}
-
-/// Verifies that `infs verify` fails when source file doesn't exist.
-///
-/// **Expected behavior**: Exit with non-zero code and print "Path not found".
-#[test]
-fn verify_fails_when_file_missing() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("verify").arg("this-file-does-not-exist.inf");
-
-    cmd.assert().failure().stderr(
-        predicate::str::contains("Path not found").or(predicate::str::contains("path not found")),
-    );
-}
-
-/// Verifies that `infs verify` shows a helpful error when coqc is not available.
-///
-/// **Test setup**: Uses PATH override to ensure coqc is not found.
-///
-/// **Expected behavior**: Exit with non-zero code and display installation instructions.
-#[test]
-fn verify_shows_coqc_not_found_message() {
-    let temp = assert_fs::TempDir::new().unwrap();
-    let src = codegen_test_file("trivial.inf");
-    let dest = temp.child("trivial.inf");
-    std::fs::copy(&src, dest.path()).unwrap();
-
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path())
-        .env("PATH", path_without_tools())
-        .arg("verify")
-        .arg(dest.path());
-
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("coqc not found"))
-        .stderr(
-            predicate::str::contains("apt install coq")
-                .or(predicate::str::contains("brew install coq")),
-        );
-}
-
-/// Verifies that `infs verify` creates the proofs directory by default.
-///
-/// **Test setup**: Checks help output for default value.
-///
-/// **Expected behavior**: The help message shows "proofs" as default.
-#[test]
-fn verify_uses_default_output_dir() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("verify").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("proofs"));
-}
-
-/// Verifies that `infs verify --output-dir` accepts a custom output directory.
-///
-/// **Expected behavior**: The help shows the output-dir option.
-#[test]
-fn verify_accepts_custom_output_dir() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("verify").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("output-dir"));
-}
-
-/// Verifies that `infs verify --skip-compile` flag is recognized.
-///
-/// **Expected behavior**: The help shows the skip-compile option.
-#[test]
-fn verify_accepts_skip_compile_flag() {
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.arg("verify").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("skip-compile"));
-}
-
-// =============================================================================
-// Phase 6: Run Command Tests
-// =============================================================================
 
 // -----------------------------------------------------------------------------
 // Run Command Tests

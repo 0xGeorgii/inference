@@ -31,11 +31,11 @@ use tokio::io::AsyncWriteExt;
 ///
 /// Used by [`download_file_with_callback`] to report progress to TUI or other consumers.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum ProgressEvent {
     /// Download has started.
     Started {
-        /// The URL being downloaded.
+        /// The URL being downloaded (available for logging/debugging).
+        #[allow(dead_code)]
         url: String,
         /// Total file size in bytes.
         total: u64,
@@ -51,7 +51,8 @@ pub enum ProgressEvent {
     Completed,
     /// Download failed with an error.
     Failed {
-        /// Error description.
+        /// Error description (available for logging/debugging).
+        #[allow(dead_code)]
         error: String,
     },
 }
@@ -252,56 +253,6 @@ fn calculate_retry_delay(attempt: u32) -> u64 {
     let jitter_range = base_delay / 4;
     let jitter = rand::rng().random_range(0..=jitter_range * 2);
     base_delay - jitter_range + jitter
-}
-
-/// Downloads a file without progress display (for smaller files).
-///
-/// # Errors
-///
-/// Returns an error if the download or file writing fails.
-#[allow(dead_code)]
-pub async fn download_file_simple(url: &str, dest: &Path) -> Result<()> {
-    let temp_path = dest.with_extension("tmp");
-
-    if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .context("Failed to create HTTP client")?;
-
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .with_context(|| format!("Failed to connect to {url}"))?;
-
-    if !response.status().is_success() {
-        bail!("HTTP error {}: {url}", response.status());
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .with_context(|| format!("Failed to download from {url}"))?;
-
-    tokio::fs::write(&temp_path, &bytes)
-        .await
-        .with_context(|| format!("Failed to write to {}", temp_path.display()))?;
-
-    tokio::fs::rename(&temp_path, dest).await.with_context(|| {
-        format!(
-            "Failed to rename {} to {}",
-            temp_path.display(),
-            dest.display()
-        )
-    })?;
-
-    Ok(())
 }
 
 /// Minimum interval between progress callback invocations in milliseconds.

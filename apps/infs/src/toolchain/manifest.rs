@@ -1,5 +1,3 @@
-#![warn(clippy::pedantic)]
-
 //! Release manifest handling for the infs toolchain.
 //!
 //! This module provides functionality for fetching and parsing the toolchain
@@ -31,12 +29,6 @@
 //! the distribution server (default: `https://inference-lang.org`). The server
 //! can be overridden via the `INFS_DIST_SERVER` environment variable for testing
 //! or using a mirror.
-//!
-//! ## Caching
-//!
-//! The manifest is cached locally at `~/.infs/cache/manifest.json` with a 15-minute
-//! TTL (configurable via `INFS_MANIFEST_CACHE_TTL` environment variable for testing).
-//! On cache miss or expiry, the manifest is fetched from the distribution server.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -59,12 +51,6 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 /// User-Agent header for HTTP requests.
 const USER_AGENT: &str = "infs-toolchain-manager";
-
-/// Environment variable to override the cache TTL (in seconds) for testing.
-pub const CACHE_TTL_ENV: &str = "INFS_MANIFEST_CACHE_TTL";
-
-/// Default cache TTL in seconds (15 minutes).
-const DEFAULT_CACHE_TTL_SECS: u64 = 15 * 60;
 
 /// Platform-specific file entry in the manifest.
 ///
@@ -223,7 +209,6 @@ pub fn find_version<'a>(manifest: &'a Manifest, version: &str) -> Option<&'a Ver
 /// # Returns
 ///
 /// A vector of version strings.
-#[allow(dead_code)]
 #[must_use = "returns version list without side effects"]
 pub fn available_versions(manifest: &Manifest) -> Vec<&str> {
     manifest.iter().map(|v| v.version.as_str()).collect()
@@ -234,14 +219,6 @@ pub fn available_versions(manifest: &Manifest) -> Vec<&str> {
 pub struct CachedManifest {
     manifest: Manifest,
     timestamp: u64,
-}
-
-/// Returns the cache TTL in seconds, checking the environment variable first.
-fn cache_ttl_secs() -> u64 {
-    std::env::var(CACHE_TTL_ENV)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_CACHE_TTL_SECS)
 }
 
 /// Returns the path to the manifest cache file.
@@ -286,15 +263,7 @@ fn load_from_cache() -> Option<Manifest> {
         let _ = std::fs::remove_file(&cache_file);
         return None;
     };
-
-    let now = current_timestamp();
-    let ttl = cache_ttl_secs();
-
-    if now.saturating_sub(cached.timestamp) < ttl {
-        Some(cached.manifest)
-    } else {
-        None
-    }
+    Some(cached.manifest)
 }
 
 /// Saves the manifest to cache.
@@ -582,21 +551,6 @@ mod tests {
     }
 
     #[test]
-    #[serial_test::serial]
-    fn cache_ttl_uses_env_when_set() {
-        unsafe { std::env::set_var(CACHE_TTL_ENV, "60") };
-        assert_eq!(cache_ttl_secs(), 60);
-        unsafe { std::env::remove_var(CACHE_TTL_ENV) };
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn cache_ttl_uses_default_when_env_not_set() {
-        unsafe { std::env::remove_var(CACHE_TTL_ENV) };
-        assert_eq!(cache_ttl_secs(), DEFAULT_CACHE_TTL_SECS);
-    }
-
-    #[test]
     fn cached_manifest_serializes_and_deserializes() {
         let manifest: Manifest =
             serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
@@ -704,7 +658,6 @@ mod tests {
 
     #[test]
     fn constants_have_expected_values() {
-        assert_eq!(CACHE_TTL_ENV, "INFS_MANIFEST_CACHE_TTL");
         assert_eq!(DIST_SERVER_ENV, "INFS_DIST_SERVER");
         assert_eq!(DEFAULT_DIST_SERVER, "https://inference-lang.org");
         assert_eq!(RELEASES_PATH, "/releases.json");

@@ -12,7 +12,6 @@
 //! - `init` - Initialize an existing directory as an Inference project
 //! - `build` - Compile Inference source files
 //! - `run` - Build and execute WASM with wasmtime
-//! - `verify` - Compile to WASM, translate to Rocq, and verify with coqc
 //! - `version` - Display version information
 //! - `install` - Install toolchain versions
 //! - `uninstall` - Remove toolchain versions
@@ -26,7 +25,7 @@
 //! ### Interactive Mode (default)
 //!
 //! When run without subcommands, `infs` will launch a TUI (Terminal User Interface)
-//! for interactive project management. This mode is planned for Phase 4.
+//! for interactive project management.
 //!
 //! ### Headless Mode (`--headless`)
 //!
@@ -42,7 +41,7 @@
 //!
 //! Build a source file:
 //! ```bash
-//! infs build example.inf --codegen -o
+//! infs build example.inf
 //! ```
 //!
 //! Install the latest toolchain:
@@ -64,7 +63,7 @@ mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    build, default, doctor, init, install, list, new, run, self_cmd, uninstall, verify, version,
+    build, default, doctor, init, install, list, new, run, self_cmd, uninstall, version,
 };
 use errors::InfsError;
 
@@ -77,7 +76,7 @@ use errors::InfsError;
     name = "infs",
     author,
     version,
-    about = "Inference unified CLI toolchain",
+    about = "Inference Start is a unified CLI toolchain",
     long_about = "The 'infs' command is the unified entry point for the Inference programming \
     language toolchain. Use subcommands like 'build' to compile source files.",
     after_help = "\
@@ -91,8 +90,7 @@ ENVIRONMENT VARIABLES:
     INFS_NO_TUI             Disable interactive TUI
     INFC_PATH               Explicit path to infc binary
     INFS_HOME               Toolchain directory (default: ~/.infs)
-    INFS_DIST_SERVER        Distribution server URL (default: https://inference-lang.org)
-    INFS_MANIFEST_CACHE_TTL Cache TTL in seconds (default: 900)"
+    INFS_DIST_SERVER        Distribution server URL (default: https://inference-lang.org)"
 )]
 pub struct Cli {
     /// Run in headless mode without TUI.
@@ -135,12 +133,6 @@ pub enum Commands {
     /// Compiles the source file to WASM and executes it with wasmtime.
     /// Arguments after the path are passed to the program.
     Run(run::RunArgs),
-
-    /// Verify proofs with Rocq.
-    ///
-    /// Compiles source to WASM, translates to Rocq (.v), and runs coqc
-    /// to verify the generated proofs.
-    Verify(verify::VerifyArgs),
 
     /// Display version information.
     ///
@@ -212,7 +204,6 @@ async fn run() -> Result<()> {
         Some(Commands::Init(args)) => init::execute(&args),
         Some(Commands::Build(args)) => build::execute(&args),
         Some(Commands::Run(args)) => run::execute(&args),
-        Some(Commands::Verify(args)) => verify::execute(&args),
         Some(Commands::Version(args)) => version::execute(&args),
         Some(Commands::Install(args)) => install::execute(&args).await,
         Some(Commands::Uninstall(args)) => uninstall::execute(&args).await,

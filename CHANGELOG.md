@@ -125,7 +125,6 @@ Initial tagged release.
 - Function definitions with generic type parameters
 - Module system with visibility modifiers
 - Add `undef` syntax support ([#10])
-- Rename `apply` to `verify` ([#10])
 
 ### Compiler
 

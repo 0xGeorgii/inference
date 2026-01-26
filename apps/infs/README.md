@@ -4,7 +4,7 @@ Unified command-line interface for the Inference compiler toolchain.
 
 ## Features
 
-- **Compilation**: Build, run, and verify Inference source files
+- **Compilation**: Build and run Inference projects
 - **Project Management**: Create and initialize Inference projects
 - **Toolchain Management**: Install, uninstall, and switch between toolchain versions
 - **Interactive TUI**: Terminal user interface for visual project management
@@ -30,7 +30,6 @@ cargo build -p infs --release
 |---------|-------------|
 | `infs build <file>` | Compile Inference source files to WASM |
 | `infs run <file>` | Build and execute with wasmtime |
-| `infs verify <file>` | Compile, translate to Rocq, and verify proofs |
 
 ### Project Management
 
@@ -99,21 +98,6 @@ infs run example.inf -- arg1 arg2
 
 Requires `wasmtime` to be installed.
 
-### Verify Command
-
-```bash
-# Compile and verify with Rocq
-infs verify example.inf
-
-# Use custom output directory
-infs verify example.inf --output-dir ./proofs
-
-# Skip compilation (use existing WASM)
-infs verify example.wasm --skip-compile
-```
-
-Requires `coqc` (Rocq/Coq compiler) to be installed.
-
 ### Project Commands
 
 ```bash
@@ -159,7 +143,7 @@ The TUI provides:
 - Command menu with keyboard navigation
 - Toolchain status and management
 - Project overview
-- Build/run/verify integration
+- Build/run integration
 
 ### TUI Controls
 
@@ -202,13 +186,12 @@ Some commands require external tools:
 | Command | Requires |
 |---------|----------|
 | `infs run` | wasmtime |
-| `infs verify` | coqc (Rocq/Coq) |
 
 Run `infs doctor` to check if all dependencies are available.
 
 ## Compiler Resolution
 
-When running `build`, `run`, or `verify` commands, `infs` locates the `infc` compiler using the following priority order:
+When running `build`, `run` commands, `infs` locates the `infc` compiler using the following priority order:
 
 | Priority | Source | Description |
 |----------|--------|-------------|
@@ -241,7 +224,6 @@ infs build example.inf # Uses managed toolchain
 | `INFC_PATH` | Explicit path to `infc` binary (priority 1) |
 | `INFS_HOME` | Toolchain directory (default: `~/.infs`) |
 | `INFS_DIST_SERVER` | Distribution server URL (default: `https://inference-lang.org`) |
-| `INFS_MANIFEST_CACHE_TTL` | Cache TTL in seconds (default: 900) |
 
 ### Release Manifest Format
 
@@ -312,6 +294,5 @@ cargo test -p infs
 
 Some integration tests are conditional:
 - `run_full_workflow_with_wasmtime` - requires wasmtime
-- `verify_full_workflow_with_coqc` - requires coqc
 
 These tests skip gracefully when external tools are unavailable.

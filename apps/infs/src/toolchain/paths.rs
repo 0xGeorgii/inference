@@ -261,13 +261,6 @@ impl ToolchainPaths {
         self.downloads.join(filename)
     }
 
-    /// Returns the path to a temporary download file.
-    #[must_use = "returns the path without side effects"]
-    #[allow(dead_code)]
-    pub fn download_temp_path(&self, filename: &str) -> PathBuf {
-        self.downloads.join(format!("{filename}.tmp"))
-    }
-
     /// Checks if a specific toolchain version is installed.
     #[must_use = "returns installation status without side effects"]
     pub fn is_version_installed(&self, version: &str) -> bool {
@@ -545,10 +538,6 @@ mod tests {
         assert_eq!(
             paths.download_path("toolchain.zip"),
             temp_dir.join("downloads").join("toolchain.zip")
-        );
-        assert_eq!(
-            paths.download_temp_path("toolchain.zip"),
-            temp_dir.join("downloads").join("toolchain.zip.tmp")
         );
     }
 
