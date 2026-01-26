@@ -7,7 +7,8 @@
 //!
 //! ## Manifest Format
 //!
-//! The manifest is a flat JSON array of version entries:
+//! The manifest is a flat JSON array of version entries with minimal file metadata.
+//! Fields like `filename`, `os`, and `tool` are derived from the URL path:
 //!
 //! ```json
 //! [
@@ -16,13 +17,8 @@
 //!     "stable": true,
 //!     "files": [
 //!       {
-//!         "filename": "infc-linux-x64.tar.gz",
-//!         "os": "linux",
-//!         "arch": "x64",
-//!         "tool": "infc",
-//!         "url": "https://...",
-//!         "sha256": "abc123...",
-//!         "size": 12345678
+//!         "url": "https://github.com/Inferara/inference/releases/download/v0.1.0-alpha/infc-linux-x64.tar.gz",
+//!         "sha256": "abc123..."
 //!       }
 //!     ]
 //!   }
@@ -71,22 +67,46 @@ pub const CACHE_TTL_ENV: &str = "INFS_MANIFEST_CACHE_TTL";
 const DEFAULT_CACHE_TTL_SECS: u64 = 15 * 60;
 
 /// Platform-specific file entry in the manifest.
+///
+/// Each OS has exactly one supported architecture:
+/// - Linux: x64 only
+/// - Windows: x64 only
+/// - macOS: arm64 only
+///
+/// The `filename`, `os`, and `tool` values are derived from the URL path.
+/// URL format: `https://.../tool-os-arch.tar.gz` (e.g., `infc-linux-x64.tar.gz`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileEntry {
-    /// Filename of the artifact (e.g., "infc-linux-x64.tar.gz").
-    pub filename: String,
-    /// Operating system (e.g., "linux", "macos", "windows").
-    pub os: String,
-    /// Architecture (e.g., "x64", "arm64").
-    pub arch: String,
-    /// Tool name (e.g., "infc", "infs").
-    pub tool: String,
     /// Download URL for the artifact.
     pub url: String,
-    /// SHA256 checksum of the artifact (required).
+    /// SHA256 checksum of the artifact.
     pub sha256: String,
-    /// Size of the artifact in bytes.
-    pub size: u64,
+}
+
+impl FileEntry {
+    /// Extracts filename from URL (last path segment).
+    ///
+    /// Example: `"https://.../infc-linux-x64.tar.gz"` -> `"infc-linux-x64.tar.gz"`
+    #[must_use]
+    pub fn filename(&self) -> &str {
+        self.url.rsplit('/').next().unwrap_or(&self.url)
+    }
+
+    /// Extracts tool name from filename (first segment before '-').
+    ///
+    /// Example: `"infc-linux-x64.tar.gz"` -> `"infc"`
+    #[must_use]
+    pub fn tool(&self) -> &str {
+        self.filename().split('-').next().unwrap_or("")
+    }
+
+    /// Extracts OS from filename (second segment).
+    ///
+    /// Example: `"infc-linux-x64.tar.gz"` -> `"linux"`
+    #[must_use]
+    pub fn os(&self) -> &str {
+        self.filename().split('-').nth(1).unwrap_or("")
+    }
 }
 
 /// Version entry in the manifest.
@@ -103,6 +123,9 @@ pub struct VersionEntry {
 impl VersionEntry {
     /// Finds the artifact for a specific platform and tool.
     ///
+    /// Each OS has exactly one supported architecture, so matching is done
+    /// by OS and tool name only.
+    ///
     /// # Arguments
     ///
     /// * `platform` - The target platform
@@ -113,10 +136,8 @@ impl VersionEntry {
     /// The file entry, or `None` if no matching artifact exists.
     #[must_use = "returns artifact info without side effects"]
     pub fn find_artifact(&self, platform: Platform, tool: &str) -> Option<&FileEntry> {
-        let (os, arch) = platform.os_arch();
-        self.files
-            .iter()
-            .find(|f| f.os == os && f.arch == arch && f.tool == tool)
+        let os = platform.os();
+        self.files.iter().find(|f| f.os() == os && f.tool() == tool)
     }
 
     /// Finds the infc artifact for a specific platform.
@@ -433,13 +454,8 @@ mod tests {
                 "stable": true,
                 "files": [
                     {
-                        "filename": "infc-linux-x64.tar.gz",
-                        "os": "linux",
-                        "arch": "x64",
-                        "tool": "infc",
                         "url": "https://example.com/0.1.0/infc-linux-x64.tar.gz",
-                        "sha256": "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
-                        "size": 1000
+                        "sha256": "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
                     }
                 ]
             },
@@ -448,31 +464,16 @@ mod tests {
                 "stable": true,
                 "files": [
                     {
-                        "filename": "infc-linux-x64.tar.gz",
-                        "os": "linux",
-                        "arch": "x64",
-                        "tool": "infc",
                         "url": "https://example.com/0.2.0/infc-linux-x64.tar.gz",
-                        "sha256": "def456abc123def456abc123def456abc123def456abc123def456abc123def4",
-                        "size": 2000
+                        "sha256": "def456abc123def456abc123def456abc123def456abc123def456abc123def4"
                     },
                     {
-                        "filename": "infc-macos-arm64.tar.gz",
-                        "os": "macos",
-                        "arch": "arm64",
-                        "tool": "infc",
                         "url": "https://example.com/0.2.0/infc-macos-arm64.tar.gz",
-                        "sha256": "ghi789abc123def456abc123def456abc123def456abc123def456abc123def4",
-                        "size": 2100
+                        "sha256": "ghi789abc123def456abc123def456abc123def456abc123def456abc123def4"
                     },
                     {
-                        "filename": "infs-linux-x64.tar.gz",
-                        "os": "linux",
-                        "arch": "x64",
-                        "tool": "infs",
                         "url": "https://example.com/0.2.0/infs-linux-x64.tar.gz",
-                        "sha256": "infs123abc123def456abc123def456abc123def456abc123def456abc123def",
-                        "size": 500
+                        "sha256": "infs123abc123def456abc123def456abc123def456abc123def456abc123def"
                     }
                 ]
             },
@@ -541,9 +542,8 @@ mod tests {
             .find_infc_artifact(Platform::LinuxX64)
             .expect("Should find artifact");
 
-        assert_eq!(artifact.os, "linux");
-        assert_eq!(artifact.arch, "x64");
-        assert_eq!(artifact.tool, "infc");
+        assert_eq!(artifact.os(), "linux");
+        assert_eq!(artifact.tool(), "infc");
     }
 
     #[test]
@@ -556,7 +556,7 @@ mod tests {
             .find_infs_artifact(Platform::LinuxX64)
             .expect("Should find artifact");
 
-        assert_eq!(artifact.tool, "infs");
+        assert_eq!(artifact.tool(), "infs");
         assert!(artifact.url.contains("infs-"));
     }
 
@@ -616,18 +616,78 @@ mod tests {
     #[test]
     fn file_entry_has_required_fields() {
         let json = r#"{
-            "filename": "infc-linux-x64.tar.gz",
-            "os": "linux",
-            "arch": "x64",
-            "tool": "infc",
-            "url": "https://example.com/file.tar.gz",
-            "sha256": "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
-            "size": 1000
+            "url": "https://example.com/infc-linux-x64.tar.gz",
+            "sha256": "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
         }"#;
 
         let entry: FileEntry = serde_json::from_str(json).expect("Should parse");
-        assert_eq!(entry.filename, "infc-linux-x64.tar.gz");
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz");
         assert_eq!(entry.sha256.len(), 64);
+    }
+
+    #[test]
+    fn file_entry_filename_extracts_from_url() {
+        let entry = FileEntry {
+            url: "https://github.com/org/repo/releases/download/v0.2.0/infc-linux-x64.tar.gz"
+                .to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz");
+    }
+
+    #[test]
+    fn file_entry_tool_extracts_from_filename() {
+        let entry = FileEntry {
+            url: "https://example.com/infc-linux-x64.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.tool(), "infc");
+
+        let entry2 = FileEntry {
+            url: "https://example.com/infs-windows-x64.tar.gz".to_string(),
+            sha256: "b".repeat(64),
+        };
+        assert_eq!(entry2.tool(), "infs");
+    }
+
+    #[test]
+    fn file_entry_os_extracts_from_filename() {
+        let linux = FileEntry {
+            url: "https://example.com/infc-linux-x64.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(linux.os(), "linux");
+
+        let macos = FileEntry {
+            url: "https://example.com/infc-macos-arm64.tar.gz".to_string(),
+            sha256: "b".repeat(64),
+        };
+        assert_eq!(macos.os(), "macos");
+
+        let windows = FileEntry {
+            url: "https://example.com/infc-windows-x64.tar.gz".to_string(),
+            sha256: "c".repeat(64),
+        };
+        assert_eq!(windows.os(), "windows");
+    }
+
+    #[test]
+    fn file_entry_handles_edge_cases() {
+        // URL with no slashes returns the whole URL as filename
+        let entry = FileEntry {
+            url: "filename.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "filename.tar.gz");
+        assert_eq!(entry.tool(), "filename.tar.gz"); // No dash, returns whole filename
+        assert_eq!(entry.os(), ""); // No second segment
+
+        // URL ending with slash
+        let entry2 = FileEntry {
+            url: "https://example.com/path/".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry2.filename(), ""); // Empty last segment
     }
 
     #[test]
@@ -714,8 +774,10 @@ mod tests {
 
     #[test]
     fn handle_http_error_500() {
-        let error =
-            handle_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "https://example.com");
+        let error = handle_http_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "https://example.com",
+        );
         assert!(error.to_string().contains("500"));
     }
 
@@ -756,35 +818,172 @@ mod tests {
             stable: true,
             files: vec![
                 FileEntry {
-                    filename: "infc-linux-x64.tar.gz".to_string(),
-                    os: "linux".to_string(),
-                    arch: "x64".to_string(),
-                    tool: "infc".to_string(),
-                    url: "https://example.com/infc".to_string(),
+                    url: "https://example.com/infc-linux-x64.tar.gz".to_string(),
                     sha256: "a".repeat(64),
-                    size: 100,
                 },
                 FileEntry {
-                    filename: "infs-linux-x64.tar.gz".to_string(),
-                    os: "linux".to_string(),
-                    arch: "x64".to_string(),
-                    tool: "infs".to_string(),
-                    url: "https://example.com/infs".to_string(),
+                    url: "https://example.com/infs-linux-x64.tar.gz".to_string(),
                     sha256: "b".repeat(64),
-                    size: 50,
                 },
             ],
         };
 
         let compiler_artifact = entry.find_artifact(Platform::LinuxX64, "infc");
         assert!(compiler_artifact.is_some());
-        assert_eq!(compiler_artifact.unwrap().tool, "infc");
+        assert_eq!(compiler_artifact.unwrap().tool(), "infc");
 
         let cli_artifact = entry.find_artifact(Platform::LinuxX64, "infs");
         assert!(cli_artifact.is_some());
-        assert_eq!(cli_artifact.unwrap().tool, "infs");
+        assert_eq!(cli_artifact.unwrap().tool(), "infs");
 
         let other = entry.find_artifact(Platform::LinuxX64, "other");
         assert!(other.is_none());
+    }
+
+    #[test]
+    fn file_entry_handles_empty_url() {
+        let entry = FileEntry {
+            url: String::new(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "");
+        assert_eq!(entry.tool(), "");
+        assert_eq!(entry.os(), "");
+    }
+
+    #[test]
+    fn file_entry_with_query_string_includes_params_in_filename() {
+        // Documents current behavior: query strings are included in filename
+        // This is acceptable since controlled manifests won't have query strings
+        let entry = FileEntry {
+            url: "https://example.com/infc-linux-x64.tar.gz?token=abc123".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz?token=abc123");
+    }
+
+    #[test]
+    fn file_entry_with_fragment_includes_fragment_in_filename() {
+        // Documents current behavior: fragments are included in filename
+        let entry = FileEntry {
+            url: "https://example.com/infc-linux-x64.tar.gz#section".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz#section");
+    }
+
+    #[test]
+    fn file_entry_filename_without_dashes() {
+        let entry = FileEntry {
+            url: "https://example.com/standalone.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "standalone.tar.gz");
+        assert_eq!(entry.tool(), "standalone.tar.gz"); // Whole filename when no dash
+        assert_eq!(entry.os(), ""); // Empty when no second segment
+    }
+
+    #[test]
+    fn file_entry_filename_with_single_dash() {
+        let entry = FileEntry {
+            url: "https://example.com/tool-remainder.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "tool-remainder.tar.gz");
+        assert_eq!(entry.tool(), "tool");
+        assert_eq!(entry.os(), "remainder.tar.gz"); // Second segment includes extension
+    }
+
+    #[test]
+    fn file_entry_filename_with_leading_dash() {
+        let entry = FileEntry {
+            url: "https://example.com/-linux-x64.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "-linux-x64.tar.gz");
+        assert_eq!(entry.tool(), ""); // Empty before first dash
+        assert_eq!(entry.os(), "linux");
+    }
+
+    #[test]
+    fn file_entry_url_with_multiple_slashes() {
+        let entry = FileEntry {
+            url: "https://example.com//path//infc-linux-x64.tar.gz".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz");
+        assert_eq!(entry.tool(), "infc");
+        assert_eq!(entry.os(), "linux");
+    }
+
+    #[test]
+    fn file_entry_url_with_only_protocol() {
+        let entry = FileEntry {
+            url: "https://".to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), ""); // Empty after last slash
+        assert_eq!(entry.tool(), "");
+        assert_eq!(entry.os(), "");
+    }
+
+    #[test]
+    fn file_entry_extracts_all_supported_platforms() {
+        let test_cases = [
+            ("https://example.com/infc-linux-x64.tar.gz", "infc", "linux"),
+            (
+                "https://example.com/infc-windows-x64.zip",
+                "infc",
+                "windows",
+            ),
+            (
+                "https://example.com/infc-macos-apple-silicon.tar.gz",
+                "infc",
+                "macos",
+            ),
+            ("https://example.com/infs-linux-x64.tar.gz", "infs", "linux"),
+            (
+                "https://example.com/infs-windows-x64.zip",
+                "infs",
+                "windows",
+            ),
+            (
+                "https://example.com/infs-macos-apple-silicon.tar.gz",
+                "infs",
+                "macos",
+            ),
+        ];
+
+        for (url, expected_tool, expected_os) in test_cases {
+            let entry = FileEntry {
+                url: url.to_string(),
+                sha256: "a".repeat(64),
+            };
+            assert_eq!(entry.tool(), expected_tool, "Failed for URL: {url}");
+            assert_eq!(entry.os(), expected_os, "Failed for URL: {url}");
+        }
+    }
+
+    #[test]
+    fn file_entry_deep_path_url() {
+        let entry = FileEntry {
+            url: "https://github.com/org/repo/releases/download/v1.0.0/infc-linux-x64.tar.gz"
+                .to_string(),
+            sha256: "a".repeat(64),
+        };
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz");
+        assert_eq!(entry.tool(), "infc");
+        assert_eq!(entry.os(), "linux");
+    }
+
+    #[test]
+    fn file_entry_url_with_whitespace() {
+        // URLs shouldn't have whitespace, but test current behavior
+        let entry = FileEntry {
+            url: " https://example.com/infc-linux-x64.tar.gz ".to_string(),
+            sha256: "a".repeat(64),
+        };
+        // Whitespace is preserved (not trimmed)
+        assert_eq!(entry.filename(), "infc-linux-x64.tar.gz ");
     }
 }

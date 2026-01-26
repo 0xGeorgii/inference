@@ -110,7 +110,7 @@ async fn run_installation_inner(
         }
     });
 
-    download_file_with_callback(&artifact.url, &archive_path, artifact.size, callback)
+    download_file_with_callback(&artifact.url, &archive_path, callback)
         .await
         .context("Failed to download toolchain archive")?;
 

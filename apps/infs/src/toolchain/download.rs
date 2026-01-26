@@ -74,13 +74,13 @@ const REQUEST_TIMEOUT_SECS: u64 = 300;
 /// Downloads a file from the given URL to the specified path with progress display.
 ///
 /// The download uses streaming to avoid loading the entire file into memory.
-/// Progress is displayed using simple text output to stdout.
+/// Progress is displayed using simple text output to stdout. The total size
+/// for progress display is obtained from the HTTP `Content-Length` header.
 ///
 /// # Arguments
 ///
 /// * `url` - The URL to download from
 /// * `dest` - The destination file path
-/// * `expected_size` - Expected file size in bytes for progress display
 ///
 /// # Errors
 ///
@@ -88,7 +88,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 300;
 /// - The network request fails after all retries
 /// - The destination file cannot be created
 /// - Writing to the file fails
-pub async fn download_file(url: &str, dest: &Path, expected_size: u64) -> Result<()> {
+pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
     let temp_path = dest.with_extension("tmp");
 
     if let Some(parent) = dest.parent() {
@@ -110,7 +110,7 @@ pub async fn download_file(url: &str, dest: &Path, expected_size: u64) -> Result
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
 
-        match download_with_progress(url, &temp_path, expected_size).await {
+        match download_with_progress(url, &temp_path).await {
             Ok(()) => {
                 tokio::fs::rename(&temp_path, dest).await.with_context(|| {
                     format!(
@@ -136,7 +136,7 @@ pub async fn download_file(url: &str, dest: &Path, expected_size: u64) -> Result
 const CLI_PROGRESS_INTERVAL_MS: u128 = 250;
 
 /// Downloads a file with simple text-based progress display.
-async fn download_with_progress(url: &str, dest: &Path, expected_size: u64) -> Result<()> {
+async fn download_with_progress(url: &str, dest: &Path) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .build()
@@ -152,7 +152,7 @@ async fn download_with_progress(url: &str, dest: &Path, expected_size: u64) -> R
         bail!("HTTP error {}: {url}", response.status());
     }
 
-    let total_size = response.content_length().unwrap_or(expected_size);
+    let total_size = response.content_length().unwrap_or(0);
 
     let mut file = tokio::fs::File::create(dest)
         .await
@@ -311,13 +311,13 @@ const PROGRESS_CALLBACK_INTERVAL_MS: u128 = 100;
 ///
 /// Unlike [`download_file`], this function reports progress via a callback
 /// instead of printing to stdout. This allows integration with custom
-/// progress displays like the TUI.
+/// progress displays like the TUI. The total size for progress display
+/// is obtained from the HTTP `Content-Length` header.
 ///
 /// # Arguments
 ///
 /// * `url` - The URL to download from
 /// * `dest` - The destination file path
-/// * `expected_size` - Expected file size in bytes for progress display
 /// * `callback` - Progress callback that receives [`ProgressEvent`]s
 ///
 /// # Errors
@@ -329,7 +329,6 @@ const PROGRESS_CALLBACK_INTERVAL_MS: u128 = 100;
 pub async fn download_file_with_callback(
     url: &str,
     dest: &Path,
-    expected_size: u64,
     callback: ProgressCallback,
 ) -> Result<()> {
     let temp_path = dest.with_extension("tmp");
@@ -348,7 +347,7 @@ pub async fn download_file_with_callback(
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
 
-        match download_with_callback(url, &temp_path, expected_size, callback.clone()).await {
+        match download_with_callback(url, &temp_path, callback.clone()).await {
             Ok(()) => {
                 tokio::fs::rename(&temp_path, dest).await.with_context(|| {
                     format!(
@@ -379,7 +378,6 @@ pub async fn download_file_with_callback(
 async fn download_with_callback(
     url: &str,
     dest: &Path,
-    expected_size: u64,
     callback: ProgressCallback,
 ) -> Result<()> {
     let client = reqwest::Client::builder()
@@ -397,7 +395,7 @@ async fn download_with_callback(
         bail!("HTTP error {}: {url}", response.status());
     }
 
-    let total_size = response.content_length().unwrap_or(expected_size);
+    let total_size = response.content_length().unwrap_or(0);
 
     callback(ProgressEvent::Started {
         url: url.to_string(),

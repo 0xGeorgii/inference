@@ -1846,6 +1846,27 @@ fn main() -> i32 {
 - Installation proceeds using artifacts from custom server
 - If server unreachable, clear error message displayed
 
+**Manifest Format Notes:**
+- The `releases.json` manifest uses a simplified format with only 2 required fields per file:
+  - `url`: Full download URL
+  - `sha256`: SHA256 checksum
+- Derived fields (`filename`, `os`, `tool`) are extracted from the URL
+- Example minimal manifest:
+  ```json
+  [
+    {
+      "version": "0.2.0",
+      "stable": true,
+      "files": [
+        {
+          "url": "https://github.com/Inferara/inference/releases/download/v0.2.0/infc-linux-x64.tar.gz",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ]
+  ```
+
 ---
 
 #### TC-10.4: INFS_DIST_SERVER Empty/Invalid Handling

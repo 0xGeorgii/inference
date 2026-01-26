@@ -100,24 +100,23 @@ impl Platform {
         matches!(self, Self::WindowsX64)
     }
 
-    /// Returns the OS and architecture as separate strings.
+    /// Returns the OS name for this platform.
     ///
-    /// This is useful for matching against the new manifest format which
-    /// stores OS and architecture separately.
+    /// This is used for matching against the manifest format which
+    /// identifies artifacts by OS and tool name.
     ///
     /// # Returns
     ///
-    /// A tuple of `(os, arch)` where:
-    /// - `os` is one of: `"linux"`, `"macos"`, `"windows"`
-    /// - `arch` is one of: `"x64"`, `"arm64"`
-    #[must_use = "returns the OS and architecture strings without side effects"]
-    pub fn os_arch(self) -> (&'static str, &'static str) {
+    /// One of: `"linux"`, `"macos"`, `"windows"`
+    #[must_use = "returns the OS string without side effects"]
+    pub fn os(self) -> &'static str {
         match self {
-            Self::LinuxX64 => ("linux", "x64"),
-            Self::MacosArm64 => ("macos", "arm64"),
-            Self::WindowsX64 => ("windows", "x64"),
+            Self::LinuxX64 => "linux",
+            Self::MacosArm64 => "macos",
+            Self::WindowsX64 => "windows",
         }
     }
+
 }
 
 impl fmt::Display for Platform {
@@ -172,9 +171,9 @@ mod tests {
     }
 
     #[test]
-    fn os_arch_returns_expected_tuples() {
-        assert_eq!(Platform::LinuxX64.os_arch(), ("linux", "x64"));
-        assert_eq!(Platform::MacosArm64.os_arch(), ("macos", "arm64"));
-        assert_eq!(Platform::WindowsX64.os_arch(), ("windows", "x64"));
+    fn os_returns_expected_values() {
+        assert_eq!(Platform::LinuxX64.os(), "linux");
+        assert_eq!(Platform::MacosArm64.os(), "macos");
+        assert_eq!(Platform::WindowsX64.os(), "windows");
     }
 }

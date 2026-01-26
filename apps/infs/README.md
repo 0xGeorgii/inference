@@ -243,6 +243,47 @@ infs build example.inf # Uses managed toolchain
 | `INFS_DIST_SERVER` | Distribution server URL (default: `https://inference-lang.org`) |
 | `INFS_MANIFEST_CACHE_TTL` | Cache TTL in seconds (default: 900) |
 
+### Release Manifest Format
+
+The `releases.json` manifest uses a simplified format with only 2 required fields per file entry:
+
+```json
+[
+  {
+    "version": "0.2.0",
+    "stable": true,
+    "files": [
+      {
+        "url": "https://github.com/Inferara/inference/releases/download/v0.2.0/infc-linux-x64.tar.gz",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  }
+]
+```
+
+**Field Descriptions:**
+
+Per-file fields (required):
+- `url` (string): Full download URL to the release artifact
+- `sha256` (string): SHA256 checksum for integrity verification
+
+Derived fields (extracted from URL automatically):
+- `filename`: Last path segment of URL (e.g., `infc-linux-x64.tar.gz`)
+- `tool`: First segment of filename before `-` (e.g., `infc`, `infs`)
+- `os`: Second segment of filename (e.g., `linux`, `macos`, `windows`)
+
+**Naming Convention:**
+
+Artifact filenames must follow the pattern: `{tool}-{os}-{arch}.{ext}`
+
+Examples:
+- `infc-linux-x64.tar.gz`
+- `infs-windows-x64.zip`
+- `infc-macos-apple-silicon.tar.gz`
+
+This allows the toolchain manager to automatically detect platform compatibility without explicit platform fields in the manifest.
+
 ## Development
 
 ### Building

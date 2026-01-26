@@ -108,7 +108,7 @@ async fn execute_update() -> Result<()> {
     let download_path = paths.download_path(&download_filename);
 
     println!("Downloading from {}...", artifact.url);
-    download_file(&artifact.url, &download_path, artifact.size).await?;
+    download_file(&artifact.url, &download_path).await?;
 
     println!("Verifying checksum...");
     verify_checksum(&download_path, &artifact.sha256)?;

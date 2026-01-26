@@ -79,7 +79,7 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
     let archive_path = paths.download_path(&archive_filename);
 
     println!("Downloading from {}...", artifact.url);
-    download_file(&artifact.url, &archive_path, artifact.size).await?;
+    download_file(&artifact.url, &archive_path).await?;
 
     println!("Verifying checksum...");
     verify_checksum(&archive_path, &artifact.sha256)?;

@@ -87,8 +87,6 @@ Prebuilt binaries are available for each release. Two CLI tools are distributed:
 | Windows x64 | `infs-windows-x64.zip` | `infc-windows-x64.zip` |
 | macOS ARM64 | `infs-macos-apple-silicon.tar.gz` | `infc-macos-apple-silicon.tar.gz` |
 
-Each release also includes a `manifest.json` with checksums and download URLs.
-
 ### Directory Structure
 
 ```
