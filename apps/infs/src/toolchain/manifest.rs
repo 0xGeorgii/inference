@@ -107,6 +107,45 @@ pub struct VersionEntry {
 }
 
 impl VersionEntry {
+    /// Checks if this version has artifacts for the specified platform.
+    ///
+    /// # Arguments
+    ///
+    /// * `platform` - The target platform to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if any artifact exists for the platform's OS, `false` otherwise.
+    #[must_use]
+    pub fn has_platform(&self, platform: Platform) -> bool {
+        let os = platform.os();
+        self.files.iter().any(|f| f.os() == os)
+    }
+
+    /// Returns sorted list of available platforms for this version.
+    ///
+    /// Platforms are deduced from the OS component of each file entry's URL.
+    /// Duplicate platforms are removed and the result is sorted alphabetically.
+    ///
+    /// # Returns
+    ///
+    /// A vector of unique platform OS names (e.g., `["linux", "macos", "windows"]`).
+    #[must_use]
+    pub fn available_platforms(&self) -> Vec<&str> {
+        let mut platforms: Vec<&str> = self
+            .files
+            .iter()
+            .filter_map(|f| {
+                let os = f.os();
+                if os.is_empty() { None } else { Some(os) }
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        platforms.sort_unstable();
+        platforms
+    }
+
     /// Finds the artifact for a specific platform and tool.
     ///
     /// Each OS has exactly one supported architecture, so matching is done
@@ -185,6 +224,33 @@ pub fn latest_stable(manifest: &Manifest) -> Option<&VersionEntry> {
     })
 }
 
+/// Finds the latest version in the manifest regardless of stability.
+///
+/// All versions are sorted by semver and the highest one is returned.
+/// This function does not filter by stability flag, so it may return
+/// pre-release versions.
+///
+/// # Arguments
+///
+/// * `manifest` - The manifest to search
+///
+/// # Returns
+///
+/// The latest version entry, or `None` if the manifest is empty.
+#[must_use = "returns version info without side effects"]
+pub fn latest_version(manifest: &Manifest) -> Option<&VersionEntry> {
+    manifest.iter().max_by(|a, b| {
+        let a_ver = semver::Version::parse(&a.version).ok();
+        let b_ver = semver::Version::parse(&b.version).ok();
+        match (a_ver, b_ver) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (None, None) => a.version.cmp(&b.version),
+        }
+    })
+}
+
 /// Finds a specific version in the manifest.
 ///
 /// # Arguments
@@ -210,8 +276,41 @@ pub fn find_version<'a>(manifest: &'a Manifest, version: &str) -> Option<&'a Ver
 ///
 /// A vector of version strings.
 #[must_use = "returns version list without side effects"]
+#[allow(dead_code)]
 pub fn available_versions(manifest: &Manifest) -> Vec<&str> {
     manifest.iter().map(|v| v.version.as_str()).collect()
+}
+
+/// Returns versions sorted by semver (newest first).
+///
+/// Versions that cannot be parsed as semver are sorted lexicographically
+/// (descending) and placed after valid semver versions.
+///
+/// # Arguments
+///
+/// * `manifest` - The manifest to query
+///
+/// # Returns
+///
+/// A vector of version entry references sorted by version (newest first).
+#[must_use = "returns sorted version list without side effects"]
+pub fn sorted_versions(manifest: &Manifest) -> Vec<&VersionEntry> {
+    let mut versions: Vec<&VersionEntry> = manifest.iter().collect();
+    versions.sort_by(|a, b| {
+        let a_ver = semver::Version::parse(&a.version).ok();
+        let b_ver = semver::Version::parse(&b.version).ok();
+        match (a_ver, b_ver) {
+            // Both valid semver: sort descending (newest first)
+            (Some(a), Some(b)) => b.cmp(&a),
+            // a is valid, b is invalid: a comes first (Less)
+            (Some(_), None) => std::cmp::Ordering::Less,
+            // a is invalid, b is valid: b comes first (Greater)
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            // Both invalid: sort descending by string
+            (None, None) => b.version.cmp(&a.version),
+        }
+    });
+    versions
 }
 
 /// Cached manifest with timestamp.
@@ -392,9 +491,9 @@ pub async fn fetch_artifact(
     let manifest = fetch_manifest().await?;
 
     let version_entry = match version {
-        None | Some("latest") => {
-            latest_stable(&manifest).context("No stable version found in manifest")?
-        }
+        None | Some("latest") => latest_stable(&manifest)
+            .or_else(|| latest_version(&manifest))
+            .context("No version found in manifest")?,
         Some(v) => find_version(&manifest, v)
             .with_context(|| format!("Version {v} not found in manifest"))?,
     };
@@ -548,6 +647,101 @@ mod tests {
         assert!(versions.contains(&"0.1.0"));
         assert!(versions.contains(&"0.2.0"));
         assert!(versions.contains(&"0.3.0-alpha"));
+    }
+
+    #[test]
+    fn version_entry_has_platform_returns_true_for_existing() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let version = find_version(&manifest, "0.2.0").expect("Should find version");
+        assert!(version.has_platform(Platform::LinuxX64));
+        assert!(version.has_platform(Platform::MacosArm64));
+    }
+
+    #[test]
+    fn version_entry_has_platform_returns_false_for_missing() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let version = find_version(&manifest, "0.1.0").expect("Should find version");
+        assert!(version.has_platform(Platform::LinuxX64));
+        assert!(!version.has_platform(Platform::MacosArm64));
+        assert!(!version.has_platform(Platform::WindowsX64));
+    }
+
+    #[test]
+    fn version_entry_available_platforms_returns_sorted_list() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let version = find_version(&manifest, "0.2.0").expect("Should find version");
+        let platforms = version.available_platforms();
+        assert_eq!(platforms, vec!["linux", "macos"]);
+    }
+
+    #[test]
+    fn version_entry_available_platforms_empty_files() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let version = find_version(&manifest, "0.3.0-alpha").expect("Should find version");
+        let platforms = version.available_platforms();
+        assert!(platforms.is_empty());
+    }
+
+    #[test]
+    fn sorted_versions_newest_first() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let versions = sorted_versions(&manifest);
+        assert_eq!(versions.len(), 3);
+        // 0.3.0-alpha > 0.2.0 > 0.1.0 in semver
+        assert_eq!(versions[0].version, "0.3.0-alpha");
+        assert_eq!(versions[1].version, "0.2.0");
+        assert_eq!(versions[2].version, "0.1.0");
+    }
+
+    #[test]
+    fn sorted_versions_empty_manifest() {
+        let manifest: Manifest = vec![];
+        let versions = sorted_versions(&manifest);
+        assert!(versions.is_empty());
+    }
+
+    #[test]
+    fn sorted_versions_handles_invalid_semver() {
+        let manifest: Manifest = vec![
+            VersionEntry {
+                version: "0.1.0".to_string(),
+                stable: true,
+                files: vec![],
+            },
+            VersionEntry {
+                version: "invalid".to_string(),
+                stable: false,
+                files: vec![],
+            },
+            VersionEntry {
+                version: "0.2.0".to_string(),
+                stable: true,
+                files: vec![],
+            },
+        ];
+
+        let versions = sorted_versions(&manifest);
+        assert_eq!(versions.len(), 3);
+        // Valid semver versions should be sorted newest first
+        // Invalid versions come after valid ones (sorted lexicographically descending)
+        // "invalid" > "0.2.0" > "0.1.0" (string comparison, descending)
+        // but valid semver: 0.2.0 > 0.1.0
+        // Final order: 0.2.0, 0.1.0, invalid (valid semver first, then invalid sorted down)
+        // Actually the current implementation: invalid semver gets Greater when b is valid,
+        // so invalid ones sink to the end
+        assert_eq!(versions[0].version, "0.2.0");
+        assert_eq!(versions[1].version, "0.1.0");
+        assert_eq!(versions[2].version, "invalid");
     }
 
     #[test]
@@ -762,6 +956,75 @@ mod tests {
         ];
 
         assert!(latest_stable(&manifest).is_none());
+    }
+
+    #[test]
+    fn latest_version_returns_highest_version() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        let latest = latest_version(&manifest).expect("Should find latest version");
+        // 0.3.0-alpha is the highest semver version
+        assert_eq!(latest.version, "0.3.0-alpha");
+    }
+
+    #[test]
+    fn latest_version_returns_none_for_empty_manifest() {
+        let manifest: Manifest = vec![];
+        assert!(latest_version(&manifest).is_none());
+    }
+
+    #[test]
+    fn latest_version_returns_prerelease_when_no_stable() {
+        let manifest: Manifest = vec![
+            VersionEntry {
+                version: "0.1.0-alpha".to_string(),
+                stable: false,
+                files: vec![],
+            },
+            VersionEntry {
+                version: "0.2.0-beta".to_string(),
+                stable: false,
+                files: vec![],
+            },
+        ];
+
+        let latest = latest_version(&manifest).expect("Should find latest version");
+        assert_eq!(latest.version, "0.2.0-beta");
+    }
+
+    #[test]
+    fn fallback_to_latest_version_when_no_stable() {
+        let manifest: Manifest = vec![
+            VersionEntry {
+                version: "0.1.0-alpha".to_string(),
+                stable: false,
+                files: vec![],
+            },
+            VersionEntry {
+                version: "0.2.0-beta".to_string(),
+                stable: false,
+                files: vec![],
+            },
+        ];
+
+        // Simulate the fallback pattern used in fetch_artifact and execute_update
+        let result = latest_stable(&manifest).or_else(|| latest_version(&manifest));
+        let entry = result.expect("Fallback should return a version");
+        assert_eq!(entry.version, "0.2.0-beta");
+    }
+
+    #[test]
+    fn fallback_prefers_stable_when_available() {
+        let manifest: Manifest =
+            serde_json::from_str(sample_manifest_json()).expect("Should parse manifest");
+
+        // Simulate the fallback pattern used in fetch_artifact and execute_update
+        let result = latest_stable(&manifest).or_else(|| latest_version(&manifest));
+        let entry = result.expect("Should find a version");
+        // Should prefer stable 0.2.0 over prerelease 0.3.0-alpha
+        assert_eq!(entry.version, "0.2.0");
+        assert!(entry.stable);
     }
 
     #[test]

@@ -26,7 +26,7 @@ pub mod verify;
 
 pub use archive::extract_zip;
 pub use download::{ProgressCallback, ProgressEvent, download_file, download_file_with_callback};
-pub use manifest::{fetch_artifact, fetch_manifest, latest_stable};
+pub use manifest::{fetch_artifact, fetch_manifest, latest_stable, latest_version};
 pub use paths::ToolchainPaths;
 pub use platform::Platform;
 pub use resolver::find_infc;

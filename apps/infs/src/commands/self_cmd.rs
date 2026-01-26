@@ -15,7 +15,7 @@ use clap::{Args, Subcommand};
 
 use crate::toolchain::{
     Platform, ToolchainPaths, download_file, extract_zip, fetch_manifest, latest_stable,
-    verify_checksum,
+    latest_version, verify_checksum,
 };
 
 /// Arguments for the self command.
@@ -80,7 +80,8 @@ async fn execute_update() -> Result<()> {
     let manifest = fetch_manifest().await?;
 
     let latest_entry = latest_stable(&manifest)
-        .context("No stable version found in manifest")?;
+        .or_else(|| latest_version(&manifest))
+        .context("No version found in manifest")?;
     let latest_version = &latest_entry.version;
 
     if latest_version == current_version {

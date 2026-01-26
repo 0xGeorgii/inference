@@ -21,6 +21,8 @@ pub enum Screen {
     Doctor,
     /// Progress view for downloads and operations.
     Progress,
+    /// Version selection view for choosing a version to install.
+    VersionSelect,
 }
 
 /// Message sent from installation task to TUI for progress updates.
@@ -74,6 +76,7 @@ impl Screen {
             Self::Toolchains => "Installed Toolchains",
             Self::Doctor => "Doctor Check Results",
             Self::Progress => "Progress",
+            Self::VersionSelect => "Select Version",
         }
     }
 }
@@ -186,6 +189,71 @@ impl DoctorState {
             .iter()
             .filter(|c| c.status == DoctorCheckStatus::Error)
             .count()
+    }
+}
+
+/// Information about an available version for installation.
+#[derive(Debug, Clone)]
+pub struct VersionSelectInfo {
+    /// Version string (e.g., "0.2.0").
+    pub version: String,
+    /// Whether this is a stable release.
+    pub stable: bool,
+    /// List of available platforms for this version.
+    pub platforms: Vec<String>,
+    /// Whether this version is available for the current platform.
+    pub available_for_current: bool,
+}
+
+/// State for the version selection view.
+#[derive(Debug, Clone, Default)]
+pub struct VersionSelectState {
+    /// List of available versions.
+    pub versions: Vec<VersionSelectInfo>,
+    /// Currently selected index.
+    pub selected: usize,
+    /// Whether the data has been loaded.
+    pub loaded: bool,
+    /// Whether data is currently loading.
+    pub loading: bool,
+    /// Error message if loading failed.
+    pub error: Option<String>,
+    /// Current OS name for display.
+    pub current_os: String,
+}
+
+impl VersionSelectState {
+    /// Creates a new empty version select state.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Moves selection up.
+    pub fn select_previous(&mut self) {
+        if !self.versions.is_empty() {
+            self.selected = self.selected.saturating_sub(1);
+        }
+    }
+
+    /// Moves selection down.
+    pub fn select_next(&mut self) {
+        if !self.versions.is_empty() {
+            self.selected = (self.selected + 1).min(self.versions.len() - 1);
+        }
+    }
+
+    /// Returns the currently selected version info, if any.
+    #[must_use]
+    pub fn selected_version(&self) -> Option<&VersionSelectInfo> {
+        self.versions.get(self.selected)
+    }
+
+    /// Returns whether the selected version is available for the current platform.
+    #[must_use]
+    pub fn can_install_selected(&self) -> bool {
+        self.selected_version()
+            .is_some_and(|v| v.available_for_current)
     }
 }
 
@@ -787,5 +855,125 @@ mod tests {
         let debug_str = format!("{progress:?}");
         assert!(debug_str.contains("PhaseStarted"));
         assert!(debug_str.contains("test"));
+    }
+
+    #[test]
+    fn version_select_state_new_is_default() {
+        let state = VersionSelectState::new();
+        assert!(state.versions.is_empty());
+        assert_eq!(state.selected, 0);
+        assert!(!state.loaded);
+        assert!(!state.loading);
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn version_select_state_navigation() {
+        let mut state = VersionSelectState {
+            versions: vec![
+                VersionSelectInfo {
+                    version: "0.1.0".to_string(),
+                    stable: true,
+                    platforms: vec!["linux".to_string()],
+                    available_for_current: true,
+                },
+                VersionSelectInfo {
+                    version: "0.2.0".to_string(),
+                    stable: true,
+                    platforms: vec!["linux".to_string(), "macos".to_string()],
+                    available_for_current: true,
+                },
+            ],
+            selected: 0,
+            loaded: true,
+            loading: false,
+            error: None,
+            current_os: "linux".to_string(),
+        };
+
+        state.select_next();
+        assert_eq!(state.selected, 1);
+
+        state.select_next();
+        assert_eq!(state.selected, 1); // Should not exceed bounds
+
+        state.select_previous();
+        assert_eq!(state.selected, 0);
+
+        state.select_previous();
+        assert_eq!(state.selected, 0); // Should not go below 0
+    }
+
+    #[test]
+    fn version_select_state_selected_version() {
+        let state = VersionSelectState {
+            versions: vec![
+                VersionSelectInfo {
+                    version: "0.1.0".to_string(),
+                    stable: true,
+                    platforms: vec!["linux".to_string()],
+                    available_for_current: true,
+                },
+                VersionSelectInfo {
+                    version: "0.2.0".to_string(),
+                    stable: false,
+                    platforms: vec!["macos".to_string()],
+                    available_for_current: false,
+                },
+            ],
+            selected: 1,
+            loaded: true,
+            loading: false,
+            error: None,
+            current_os: "linux".to_string(),
+        };
+
+        let selected = state.selected_version().expect("Should have selected");
+        assert_eq!(selected.version, "0.2.0");
+        assert!(!selected.stable);
+        assert!(!selected.available_for_current);
+    }
+
+    #[test]
+    fn version_select_state_can_install_selected() {
+        let mut state = VersionSelectState {
+            versions: vec![
+                VersionSelectInfo {
+                    version: "0.1.0".to_string(),
+                    stable: true,
+                    platforms: vec!["linux".to_string()],
+                    available_for_current: true,
+                },
+                VersionSelectInfo {
+                    version: "0.2.0".to_string(),
+                    stable: false,
+                    platforms: vec!["macos".to_string()],
+                    available_for_current: false,
+                },
+            ],
+            selected: 0,
+            loaded: true,
+            loading: false,
+            error: None,
+            current_os: "linux".to_string(),
+        };
+
+        assert!(state.can_install_selected());
+
+        state.selected = 1;
+        assert!(!state.can_install_selected());
+    }
+
+    #[test]
+    fn version_select_state_empty_navigation_is_safe() {
+        let mut state = VersionSelectState::new();
+        state.select_previous();
+        state.select_next();
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn screen_version_select_title() {
+        assert_eq!(Screen::VersionSelect.title(), "Select Version");
     }
 }

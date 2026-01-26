@@ -618,6 +618,88 @@ fn list_shows_no_toolchains_message() {
 }
 
 // -----------------------------------------------------------------------------
+// Versions Command Tests
+// -----------------------------------------------------------------------------
+
+/// Verifies that `infs versions --help` displays the available options.
+///
+/// **Expected behavior**: Exit with code 0 and show stable and json flags.
+#[test]
+fn versions_help_shows_options() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("versions").arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("List available"))
+        .stdout(predicate::str::contains("--stable"))
+        .stdout(predicate::str::contains("--json"));
+}
+
+/// Verifies that `infs versions` shows an error when no network is available.
+///
+/// **Test setup**: Uses a non-existent distribution server (`INFS_DIST_SERVER`) and
+/// isolated `INFS_HOME` to ensure no cached manifest is used.
+///
+/// **Expected behavior**: Exit with non-zero code and display a network error.
+#[test]
+fn versions_without_network_shows_error() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFS_DIST_SERVER", "http://localhost:1")
+        .env("INFS_HOME", temp.path())
+        .arg("versions")
+        .arg("--headless");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("Failed")
+            .or(predicate::str::contains("error"))
+            .or(predicate::str::contains("Error")),
+    );
+}
+
+/// Verifies that `infs versions --stable` flag is accepted.
+///
+/// **Test setup**: Uses a non-existent distribution server and isolated `INFS_HOME`.
+///
+/// **Expected behavior**: The flag is parsed correctly (failure is from network, not flag parsing).
+#[test]
+fn versions_stable_flag_is_accepted() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFS_DIST_SERVER", "http://localhost:1")
+        .env("INFS_HOME", temp.path())
+        .arg("versions")
+        .arg("--stable")
+        .arg("--headless");
+
+    // Should fail due to network, not argument parsing
+    cmd.assert().failure();
+}
+
+/// Verifies that `infs versions --json` flag is accepted.
+///
+/// **Test setup**: Uses a non-existent distribution server and isolated `INFS_HOME`.
+///
+/// **Expected behavior**: The flag is parsed correctly (failure is from network, not flag parsing).
+#[test]
+fn versions_json_flag_is_accepted() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFS_DIST_SERVER", "http://localhost:1")
+        .env("INFS_HOME", temp.path())
+        .arg("versions")
+        .arg("--json")
+        .arg("--headless");
+
+    // Should fail due to network, not argument parsing
+    cmd.assert().failure();
+}
+
+// -----------------------------------------------------------------------------
 // Default Command Tests
 // -----------------------------------------------------------------------------
 

@@ -35,11 +35,11 @@ use super::install_task;
 use super::menu::Menu;
 use super::state::{
     DoctorState, InstallProgress, ProgressItem, ProgressState, Screen, ToolchainInfo,
-    ToolchainsState,
+    ToolchainsState, VersionSelectInfo, VersionSelectState,
 };
 use super::terminal::TerminalGuard;
 use super::theme::Theme;
-use super::views::{doctor_view, main_view, progress_view, toolchain_view};
+use super::views::{doctor_view, main_view, progress_view, toolchain_view, version_select_view};
 use super::widgets::input_field::CommandHistory;
 use crate::toolchain::ToolchainPaths;
 use crate::toolchain::doctor::run_all_checks;
@@ -106,6 +106,10 @@ pub struct App {
     install_receiver: Option<Receiver<InstallProgress>>,
     /// Screen to return to after progress view is dismissed.
     previous_screen: Option<Screen>,
+    /// Version select view state.
+    version_select_state: VersionSelectState,
+    /// Receiver for version loading results from background task.
+    version_load_receiver: Option<Receiver<Result<Vec<VersionSelectInfo>, String>>>,
 }
 
 impl Default for App {
@@ -127,6 +131,8 @@ impl Default for App {
             exe_path_override: None,
             install_receiver: None,
             previous_screen: None,
+            version_select_state: VersionSelectState::new(),
+            version_load_receiver: None,
         }
     }
 }
@@ -167,6 +173,7 @@ impl App {
             Screen::Toolchains => self.handle_toolchains_key(code),
             Screen::Doctor => self.handle_doctor_key(code),
             Screen::Progress => self.handle_progress_key(code),
+            Screen::VersionSelect => self.handle_version_select_key(code),
         }
     }
 
@@ -219,11 +226,19 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.toolchains_state.select_next();
             }
-            KeyCode::Enter | KeyCode::Char('i') => {
+            KeyCode::Char('i') => {
+                // Show version selection screen
+                self.previous_screen = Some(Screen::Toolchains);
+                self.version_select_state = VersionSelectState::new();
+                self.navigate_to(Screen::VersionSelect);
+            }
+            KeyCode::Enter => {
                 if self.toolchains_state.toolchains.is_empty() {
-                    // No toolchains installed - start installation in TUI
-                    self.start_installation(None);
-                } else if code == KeyCode::Enter {
+                    // No toolchains installed - show version selection
+                    self.previous_screen = Some(Screen::Toolchains);
+                    self.version_select_state = VersionSelectState::new();
+                    self.navigate_to(Screen::VersionSelect);
+                } else {
                     // Toolchains exist - set selected as default
                     self.set_selected_toolchain_as_default();
                 }
@@ -301,6 +316,37 @@ impl App {
         }
     }
 
+    /// Handles key events on the version select screen.
+    fn handle_version_select_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => {
+                // Return to previous screen
+                let return_screen = self.previous_screen.unwrap_or(Screen::Main);
+                self.previous_screen = None;
+                self.version_load_receiver = None;
+                self.navigate_to(return_screen);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.version_select_state.select_previous();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.version_select_state.select_next();
+            }
+            KeyCode::Enter => {
+                if self.version_select_state.can_install_selected() {
+                    if let Some(version_info) = self.version_select_state.selected_version() {
+                        let version = version_info.version.clone();
+                        self.start_installation(Some(version));
+                    }
+                } else {
+                    self.status_message =
+                        String::from("Selected version is not available for your platform");
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Returns from progress screen to the previous screen.
     fn return_from_progress(&mut self) {
         // Reload toolchain data if we came from toolchains screen
@@ -353,6 +399,13 @@ impl App {
             }
             Screen::Progress => {
                 self.status_message = String::from("Operation in progress...");
+            }
+            Screen::VersionSelect => {
+                if !self.version_select_state.loaded && !self.version_select_state.loading {
+                    self.load_version_data();
+                }
+                self.status_message =
+                    String::from("Press Enter to install, Esc to go back");
             }
         }
     }
@@ -679,6 +732,84 @@ impl App {
         self.doctor_state.loaded = true;
     }
 
+    /// Loads version data from the release manifest in a background thread.
+    ///
+    /// Creates a channel for the result, spawns a thread with a tokio runtime
+    /// to fetch the manifest, and sets up the version select state for loading.
+    fn load_version_data(&mut self) {
+        use std::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel();
+        self.version_load_receiver = Some(rx);
+        self.version_select_state.loading = true;
+        self.version_select_state.error = None;
+
+        // Detect platform and set current_os
+        let platform = crate::toolchain::Platform::detect()
+            .map_or_else(|_| "unknown".to_string(), |p| p.os().to_string());
+        self.version_select_state.current_os.clone_from(&platform);
+
+        // Spawn version loading task on a separate thread
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            let result = rt.block_on(async {
+                use crate::toolchain::manifest::{fetch_manifest, sorted_versions};
+                use crate::toolchain::Platform;
+
+                let platform = Platform::detect()
+                    .map_err(|e| format!("Platform detection failed: {e}"))?;
+                let manifest = fetch_manifest()
+                    .await
+                    .map_err(|e| format!("Failed to fetch manifest: {e}"))?;
+
+                let versions: Vec<VersionSelectInfo> = sorted_versions(&manifest)
+                    .into_iter()
+                    .map(|v| VersionSelectInfo {
+                        version: v.version.clone(),
+                        stable: v.stable,
+                        platforms: v
+                            .available_platforms()
+                            .into_iter()
+                            .map(String::from)
+                            .collect(),
+                        available_for_current: v.has_platform(platform),
+                    })
+                    .collect();
+
+                Ok(versions)
+            });
+
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Polls the version loading channel and updates the version select state.
+    ///
+    /// This method should be called in each iteration of the TUI event loop
+    /// when on the version select screen.
+    fn poll_version_loading(&mut self) {
+        let Some(receiver) = self.version_load_receiver.as_ref() else {
+            return;
+        };
+
+        if let Ok(result) = receiver.try_recv() {
+            match result {
+                Ok(versions) => {
+                    self.version_select_state.versions = versions;
+                    self.version_select_state.selected = 0;
+                    self.version_select_state.loaded = true;
+                    self.version_select_state.loading = false;
+                }
+                Err(error) => {
+                    self.version_select_state.error = Some(error);
+                    self.version_select_state.loaded = true;
+                    self.version_select_state.loading = false;
+                }
+            }
+            self.version_load_receiver = None;
+        }
+    }
+
     /// Starts a background installation task.
     ///
     /// Creates a channel for progress messages, sets up the progress state,
@@ -798,8 +929,9 @@ pub fn run_app(guard: &mut TerminalGuard) -> Result<Option<String>> {
     let mut app = App::default();
 
     loop {
-        // Poll for installation progress (non-blocking)
+        // Poll for async operations (non-blocking)
         app.poll_install_progress();
+        app.poll_version_loading();
 
         guard
             .terminal
@@ -846,6 +978,9 @@ fn render(app: &App, frame: &mut Frame) {
         }
         Screen::Progress => {
             progress_view::render(frame, area, &app.theme, &app.progress_state);
+        }
+        Screen::VersionSelect => {
+            version_select_view::render(frame, area, &app.theme, &app.version_select_state);
         }
     }
 }
@@ -1394,7 +1529,7 @@ mod tests {
     }
 
     #[test]
-    fn toolchains_enter_on_empty_starts_installation() {
+    fn toolchains_enter_on_empty_shows_version_select() {
         let mut app = App {
             screen: Screen::Toolchains,
             toolchains_state: ToolchainsState::new(), // empty
@@ -1403,16 +1538,15 @@ mod tests {
 
         app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
-        // Should switch to progress screen and start installation
-        assert_eq!(app.screen, Screen::Progress);
+        // Should switch to version select screen
+        assert_eq!(app.screen, Screen::VersionSelect);
         assert!(!app.should_quit);
         assert!(app.pending_command.is_none());
-        assert!(app.install_receiver.is_some());
         assert_eq!(app.previous_screen, Some(Screen::Toolchains));
     }
 
     #[test]
-    fn toolchains_i_on_empty_starts_installation() {
+    fn toolchains_i_on_empty_shows_version_select() {
         let mut app = App {
             screen: Screen::Toolchains,
             toolchains_state: ToolchainsState::new(), // empty
@@ -1421,15 +1555,15 @@ mod tests {
 
         app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
 
-        // Should switch to progress screen and start installation
-        assert_eq!(app.screen, Screen::Progress);
+        // Should switch to version select screen
+        assert_eq!(app.screen, Screen::VersionSelect);
         assert!(!app.should_quit);
         assert!(app.pending_command.is_none());
-        assert!(app.install_receiver.is_some());
+        assert_eq!(app.previous_screen, Some(Screen::Toolchains));
     }
 
     #[test]
-    fn toolchains_i_with_toolchains_does_nothing() {
+    fn toolchains_i_with_toolchains_shows_version_select() {
         let mut app = App {
             screen: Screen::Toolchains,
             toolchains_state: ToolchainsState {
@@ -1446,11 +1580,11 @@ mod tests {
 
         app.handle_key(KeyCode::Char('i'), KeyModifiers::NONE);
 
-        // Should not quit or set pending command
+        // Should show version select screen
         assert!(!app.should_quit);
         assert!(app.pending_command.is_none());
-        // Should stay on toolchains screen
-        assert_eq!(app.screen, Screen::Toolchains);
+        assert_eq!(app.screen, Screen::VersionSelect);
+        assert_eq!(app.previous_screen, Some(Screen::Toolchains));
     }
 
     #[test]
@@ -1568,5 +1702,158 @@ mod tests {
         assert!(app.progress_state.completed);
         assert!(app.progress_state.error.is_some());
         assert!(app.install_receiver.is_none());
+    }
+
+    #[test]
+    fn version_select_esc_returns_to_previous_screen() {
+        let mut app = App {
+            screen: Screen::VersionSelect,
+            previous_screen: Some(Screen::Toolchains),
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Toolchains);
+        assert!(app.previous_screen.is_none());
+    }
+
+    #[test]
+    fn version_select_navigation() {
+        let mut app = App {
+            screen: Screen::VersionSelect,
+            version_select_state: VersionSelectState {
+                versions: vec![
+                    VersionSelectInfo {
+                        version: "0.2.0".to_string(),
+                        stable: true,
+                        platforms: vec!["linux".to_string()],
+                        available_for_current: true,
+                    },
+                    VersionSelectInfo {
+                        version: "0.1.0".to_string(),
+                        stable: true,
+                        platforms: vec!["linux".to_string()],
+                        available_for_current: true,
+                    },
+                ],
+                selected: 0,
+                loaded: true,
+                loading: false,
+                error: None,
+                current_os: "linux".to_string(),
+            },
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.version_select_state.selected, 1);
+
+        app.handle_key(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(app.version_select_state.selected, 0);
+
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(app.version_select_state.selected, 1);
+
+        app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(app.version_select_state.selected, 0);
+    }
+
+    #[test]
+    fn version_select_enter_on_available_starts_install() {
+        let mut app = App {
+            screen: Screen::VersionSelect,
+            previous_screen: Some(Screen::Toolchains),
+            version_select_state: VersionSelectState {
+                versions: vec![VersionSelectInfo {
+                    version: "0.2.0".to_string(),
+                    stable: true,
+                    platforms: vec!["linux".to_string()],
+                    available_for_current: true,
+                }],
+                selected: 0,
+                loaded: true,
+                loading: false,
+                error: None,
+                current_os: "linux".to_string(),
+            },
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.screen, Screen::Progress);
+        assert!(app.install_receiver.is_some());
+    }
+
+    #[test]
+    fn version_select_enter_on_unavailable_shows_error() {
+        let mut app = App {
+            screen: Screen::VersionSelect,
+            previous_screen: Some(Screen::Toolchains),
+            version_select_state: VersionSelectState {
+                versions: vec![VersionSelectInfo {
+                    version: "0.2.0".to_string(),
+                    stable: true,
+                    platforms: vec!["macos".to_string()],
+                    available_for_current: false,
+                }],
+                selected: 0,
+                loaded: true,
+                loading: false,
+                error: None,
+                current_os: "linux".to_string(),
+            },
+            ..App::default()
+        };
+
+        app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        // Should stay on version select screen
+        assert_eq!(app.screen, Screen::VersionSelect);
+        assert!(app.status_message.contains("not available"));
+    }
+
+    #[test]
+    fn poll_version_loading_updates_state_on_success() {
+        use std::sync::mpsc;
+
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel();
+        app.version_load_receiver = Some(rx);
+        app.version_select_state.loading = true;
+
+        let versions = vec![VersionSelectInfo {
+            version: "0.1.0".to_string(),
+            stable: true,
+            platforms: vec!["linux".to_string()],
+            available_for_current: true,
+        }];
+
+        tx.send(Ok(versions.clone())).expect("Should send");
+
+        app.poll_version_loading();
+
+        assert!(app.version_select_state.loaded);
+        assert!(!app.version_select_state.loading);
+        assert_eq!(app.version_select_state.versions.len(), 1);
+        assert!(app.version_load_receiver.is_none());
+    }
+
+    #[test]
+    fn poll_version_loading_updates_state_on_error() {
+        use std::sync::mpsc;
+
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel();
+        app.version_load_receiver = Some(rx);
+        app.version_select_state.loading = true;
+
+        tx.send(Err("Network error".to_string()))
+            .expect("Should send");
+
+        app.poll_version_loading();
+
+        assert!(app.version_select_state.loaded);
+        assert!(!app.version_select_state.loading);
+        assert!(app.version_select_state.error.is_some());
+        assert!(app.version_load_receiver.is_none());
     }
 }

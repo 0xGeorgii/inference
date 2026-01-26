@@ -124,6 +124,9 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, is_empty: bool) {
             Span::raw("  "),
             Span::styled("[Enter] ", Style::default().fg(theme.highlight)),
             Span::styled("Set default", Style::default().fg(theme.muted)),
+            Span::raw("  "),
+            Span::styled("[i] ", Style::default().fg(theme.highlight)),
+            Span::styled("Install", Style::default().fg(theme.muted)),
         ])
     };
 

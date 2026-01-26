@@ -63,7 +63,7 @@ mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    build, default, doctor, init, install, list, new, run, self_cmd, uninstall, version,
+    build, default, doctor, init, install, list, new, run, self_cmd, uninstall, version, versions,
 };
 use errors::InfsError;
 
@@ -157,6 +157,12 @@ pub enum Commands {
     /// one is currently set as the default.
     List,
 
+    /// List available toolchain versions.
+    ///
+    /// Fetches the release manifest and displays all available versions
+    /// with their stability status and platform availability.
+    Versions(versions::VersionsArgs),
+
     /// Set the default toolchain version.
     ///
     /// Changes the default toolchain used for compilation.
@@ -208,6 +214,7 @@ async fn run() -> Result<()> {
         Some(Commands::Install(args)) => install::execute(&args).await,
         Some(Commands::Uninstall(args)) => uninstall::execute(&args).await,
         Some(Commands::List) => list::execute().await,
+        Some(Commands::Versions(args)) => versions::execute(&args).await,
         Some(Commands::Default(args)) => default::execute(&args).await,
         Some(Commands::Doctor) => doctor::execute().await,
         Some(Commands::SelfCmd(args)) => self_cmd::execute(&args).await,

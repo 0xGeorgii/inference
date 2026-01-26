@@ -20,6 +20,7 @@
 //! - [`install`] - Install toolchain versions
 //! - [`uninstall`] - Remove toolchain versions
 //! - [`list`] - List installed toolchains
+//! - [`versions`] - List available remote versions
 //! - [`default`] - Set default toolchain version
 //! - [`doctor`] - Check installation health
 //! - [`self_cmd`] - Manage infs itself
@@ -35,3 +36,4 @@ pub mod run;
 pub mod self_cmd;
 pub mod uninstall;
 pub mod version;
+pub mod versions;
