@@ -105,6 +105,20 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
 
     println!("Toolchain {version} installed successfully.");
 
+    if is_first_install {
+        println!();
+        #[cfg(unix)]
+        {
+            println!("To use the toolchain, add to your shell profile:");
+            println!("  export PATH=\"{}:$PATH\"", paths.bin.display());
+        }
+        #[cfg(windows)]
+        {
+            println!("To use the toolchain, add the following directory to your PATH environment variable:");
+            println!("  {}", paths.bin.display());
+        }
+    }
+
     if current_default.is_some() && current_default.as_deref() != Some(&version) {
         println!("Run 'infs default {version}' to make it the default toolchain.");
     }

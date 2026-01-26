@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### infs CLI
+
+- Fix `infs install` and `infs self update` to fall back to latest pre-release version when no stable versions exist ([#96])
+  - Previously failed with "No stable version found in manifest" error
+  - Now uses latest stable version if available, otherwise falls back to latest version regardless of stability
+
 ### Build
 
 - Add `infs` binaries to release artifacts for all platforms (Linux x64, Windows x64, macOS ARM64)
@@ -177,3 +183,4 @@ Initial tagged release.
 [#69]: https://github.com/Inferara/inference/pull/69
 [#86]: https://github.com/Inferara/inference/pull/86
 [#94]: https://github.com/Inferara/inference/pull/94
+[#96]: https://github.com/Inferara/inference/pull/96

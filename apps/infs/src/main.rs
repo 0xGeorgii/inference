@@ -84,12 +84,12 @@ COMPILER RESOLUTION:
     The infc compiler is located using the following priority order:
     1. INFC_PATH environment variable (explicit override)
     2. System PATH (via 'which infc')
-    3. Managed toolchain (~/.infs/toolchains/VERSION/bin/infc)
+    3. Managed toolchain (~/.inference/toolchains/VERSION/bin/infc)
 
 ENVIRONMENT VARIABLES:
     INFS_NO_TUI             Disable interactive TUI
     INFC_PATH               Explicit path to infc binary
-    INFS_HOME               Toolchain directory (default: ~/.infs)
+    INFERENCE_HOME          Toolchain directory (default: ~/.inference)
     INFS_DIST_SERVER        Distribution server URL (default: https://inference-lang.org)"
 )]
 pub struct Cli {

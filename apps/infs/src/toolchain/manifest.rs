@@ -322,20 +322,20 @@ pub struct CachedManifest {
 
 /// Returns the path to the manifest cache file.
 fn cache_path() -> Result<PathBuf> {
-    let root = if let Ok(home) = std::env::var(super::paths::INFS_HOME_ENV) {
+    let root = if let Ok(home) = std::env::var(super::paths::INFERENCE_HOME_ENV) {
         PathBuf::from(home)
     } else {
         #[cfg(windows)]
         {
             dirs::data_dir()
                 .context("Cannot determine AppData directory")?
-                .join("infs")
+                .join("inference")
         }
         #[cfg(not(windows))]
         {
             dirs::home_dir()
                 .context("Cannot determine home directory")?
-                .join(".infs")
+                .join(".inference")
         }
     };
     Ok(root.join("cache").join("manifest.json"))
@@ -391,7 +391,7 @@ fn save_to_cache(manifest: &Manifest) {
 
 /// Fetches the release manifest, using a local cache with 15-minute TTL.
 ///
-/// The manifest is cached at `~/.infs/cache/manifest.json`. If the cache is valid,
+/// The manifest is cached at `~/.inference/cache/manifest.json`. If the cache is valid,
 /// returns the cached manifest without making a network request. On cache miss or
 /// expiry, fetches from the static manifest URL and updates the cache.
 ///

@@ -42,7 +42,7 @@ cargo build -p infs --release
 
 | Command | Description |
 |---------|-------------|
-| `infs install [version]` | Install a toolchain version (latest if omitted) |
+| `infs install [version]` | Install a toolchain version (latest stable, or latest if no stable) |
 | `infs uninstall <version>` | Remove an installed toolchain |
 | `infs list` | List installed toolchains |
 | `infs default <version>` | Set the default toolchain |
@@ -115,7 +115,7 @@ infs init
 ### Toolchain Commands
 
 ```bash
-# Install latest toolchain
+# Install latest stable toolchain (or latest if no stable versions exist)
 infs install
 
 # Install specific version
@@ -197,7 +197,7 @@ When running `build`, `run` commands, `infs` locates the `infc` compiler using t
 |----------|--------|-------------|
 | 1 (highest) | `INFC_PATH` env var | Explicit path to a specific `infc` binary |
 | 2 | System PATH | Searches for `infc` in system PATH via `which` |
-| 3 (lowest) | Managed toolchain | Uses `~/.infs/toolchains/VERSION/bin/infc` |
+| 3 (lowest) | Managed toolchain | Uses `~/.inference/toolchains/VERSION/bin/infc` |
 
 ### When to Use Each
 
@@ -211,7 +211,7 @@ infs build example.inf --codegen -o
 
 **Priority 3 - Managed Toolchain**: Default for end users after running `infs install`:
 ```bash
-infs install           # Downloads to ~/.infs/toolchains/
+infs install           # Downloads to ~/.inference/toolchains/
 infs default 0.1.0     # Sets default version
 infs build example.inf # Uses managed toolchain
 ```
@@ -222,7 +222,7 @@ infs build example.inf # Uses managed toolchain
 |----------|---------|
 | `INFS_NO_TUI` | Disable interactive TUI (any value) |
 | `INFC_PATH` | Explicit path to `infc` binary (priority 1) |
-| `INFS_HOME` | Toolchain directory (default: `~/.infs`) |
+| `INFERENCE_HOME` | Toolchain directory (default: `~/.inference`) |
 | `INFS_DIST_SERVER` | Distribution server URL (default: `https://inference-lang.org`) |
 
 ### Release Manifest Format
@@ -245,6 +245,10 @@ The `releases.json` manifest uses a simplified format with only 2 required field
 ```
 
 **Field Descriptions:**
+
+Per-version fields:
+- `version` (string): Semantic version string (e.g., `0.2.0`, `0.3.0-alpha`)
+- `stable` (boolean): Whether this is a stable release. When running `infs install` without a version argument, the latest stable version is preferred. If no stable versions exist, the latest version is used regardless of stability.
 
 Per-file fields (required):
 - `url` (string): Full download URL to the release artifact

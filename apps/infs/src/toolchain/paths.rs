@@ -3,16 +3,17 @@
 //! Path management for the infs toolchain.
 //!
 //! This module provides utilities for managing toolchain installation paths.
-//! The default root directory is `~/.infs/`, which can be overridden by
-//! setting the `INFS_HOME` environment variable.
+//! The default root directory is `~/.inference/`, which can be overridden by
+//! setting the `INFERENCE_HOME` environment variable.
 //!
 //! ## Directory Structure
 //!
 //! ```text
-//! ~/.infs/                    # Root directory (or INFS_HOME)
+//! ~/.inference/               # Root directory (or INFERENCE_HOME)
 //!   toolchains/               # Installed toolchain versions
 //!     0.1.0/                  # Version-specific installation
 //!       bin/
+//!         infc
 //!         inf-llc
 //!         rust-lld
 //!       .metadata.json        # Installation metadata (date, etc.)
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Environment variable to override the default toolchain root directory.
-pub const INFS_HOME_ENV: &str = "INFS_HOME";
+pub const INFERENCE_HOME_ENV: &str = "INFERENCE_HOME";
 
 /// Metadata file name stored in each toolchain version directory.
 const METADATA_FILE: &str = ".metadata.json";
@@ -182,7 +183,7 @@ fn parse_and_format_relative_time(date_str: &str) -> String {
 /// ensuring consistent path construction across the codebase.
 #[derive(Debug, Clone)]
 pub struct ToolchainPaths {
-    /// Root directory for all toolchain data (`~/.infs` or `INFS_HOME`).
+    /// Root directory for all toolchain data (`~/.inference` or `INFERENCE_HOME`).
     pub root: PathBuf,
     /// Directory containing installed toolchain versions.
     pub toolchains: PathBuf,
@@ -196,28 +197,28 @@ impl ToolchainPaths {
     /// Creates a new `ToolchainPaths` instance.
     ///
     /// The root directory is determined by:
-    /// 1. The `INFS_HOME` environment variable if set
-    /// 2. On Windows: `%APPDATA%\infs`
-    /// 3. On Unix: `~/.infs` in the user's home directory
+    /// 1. The `INFERENCE_HOME` environment variable if set
+    /// 2. On Windows: `%APPDATA%\inference`
+    /// 3. On Unix: `~/.inference` in the user's home directory
     ///
     /// # Errors
     ///
     /// Returns an error if the home directory cannot be determined.
     pub fn new() -> Result<Self> {
-        let root = if let Ok(home) = std::env::var(INFS_HOME_ENV) {
+        let root = if let Ok(home) = std::env::var(INFERENCE_HOME_ENV) {
             PathBuf::from(home)
         } else {
             #[cfg(windows)]
             {
                 dirs::data_dir()
-                    .context("Cannot determine AppData directory. Set INFS_HOME environment variable.")?
-                    .join("infs")
+                    .context("Cannot determine AppData directory. Set INFERENCE_HOME environment variable.")?
+                    .join("inference")
             }
             #[cfg(not(windows))]
             {
                 dirs::home_dir()
-                    .context("Cannot determine home directory. Set INFS_HOME environment variable.")?
-                    .join(".infs")
+                    .context("Cannot determine home directory. Set INFERENCE_HOME environment variable.")?
+                    .join(".inference")
             }
         };
 
@@ -427,7 +428,7 @@ impl ToolchainPaths {
 
     /// Updates symlinks in the bin directory to point to the specified version.
     ///
-    /// Creates symlinks for `inf-llc` and `rust-lld` binaries.
+    /// Creates symlinks for `infc`, `inf-llc`, and `rust-lld` binaries.
     ///
     /// # Errors
     ///
@@ -437,6 +438,7 @@ impl ToolchainPaths {
         let ext = platform.executable_extension();
 
         let binaries = [
+            format!("infc{ext}"),
             format!("inf-llc{ext}"),
             format!("rust-lld{ext}"),
         ];
@@ -453,7 +455,7 @@ impl ToolchainPaths {
 
     /// Removes all symlinks from the bin directory.
     ///
-    /// Removes symlinks for `inf-llc` and `rust-lld` binaries.
+    /// Removes symlinks for `infc`, `inf-llc`, and `rust-lld` binaries.
     ///
     /// # Errors
     ///
@@ -463,6 +465,7 @@ impl ToolchainPaths {
         let ext = platform.executable_extension();
 
         let binaries = [
+            format!("infc{ext}"),
             format!("inf-llc{ext}"),
             format!("rust-lld{ext}"),
         ];

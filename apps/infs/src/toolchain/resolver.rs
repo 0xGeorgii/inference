@@ -7,7 +7,7 @@
 //!
 //! 1. Explicit override via `INFC_PATH` environment variable
 //! 2. System PATH via `which::which("infc")`
-//! 3. Managed toolchain at `~/.infs/toolchains/VERSION/bin/infc`
+//! 3. Managed toolchain at `~/.inference/toolchains/VERSION/bin/infc`
 //!
 //! ## Environment Variables
 //!
@@ -38,7 +38,7 @@ const INFC_PATH_ENV: &str = "INFC_PATH";
 /// 1. **`INFC_PATH` environment variable** - Explicit override for testing
 ///    or custom installations
 /// 2. **System PATH** - Uses `which::which("infc")` to find infc in PATH
-/// 3. **Managed toolchain** - Looks in `~/.infs/toolchains/VERSION/bin/infc`
+/// 3. **Managed toolchain** - Looks in `~/.inference/toolchains/VERSION/bin/infc`
 ///    using the default toolchain version if set
 ///
 /// # Errors
@@ -139,9 +139,9 @@ mod tests {
             env::set_var("PATH", "");
             env::remove_var(INFC_PATH_ENV);
 
-            // Use isolated INFS_HOME to ensure no managed toolchain
+            // Use isolated INFERENCE_HOME to ensure no managed toolchain
             let temp_dir = env::temp_dir().join("infs_test_resolver");
-            env::set_var("INFS_HOME", &temp_dir);
+            env::set_var("INFERENCE_HOME", &temp_dir);
         }
 
         let result = find_infc();
@@ -149,7 +149,7 @@ mod tests {
         // SAFETY: Cleanup - restoring previous state
         unsafe {
             env::set_var("PATH", original_path);
-            env::remove_var("INFS_HOME");
+            env::remove_var("INFERENCE_HOME");
         }
 
         assert!(result.is_err());

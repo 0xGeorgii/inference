@@ -1055,16 +1055,16 @@ fn main() -> i32 {
 
 **Preconditions:**
 - Network access available
-- `~/.infs/` writable or doesn't exist
+- `~/.inference/` writable or doesn't exist
 
 **Steps:**
 1. Run `infs install`
-2. Check `~/.infs/toolchains/`
+2. Check `~/.inference/toolchains/`
 
 **Expected Result:**
 - Exit code: 0
 - Progress displayed during download
-- Toolchain installed in `~/.infs/toolchains/X.Y.Z/`
+- Toolchain installed in `~/.inference/toolchains/X.Y.Z/`
 - Set as default if first installation
 
 ---
@@ -1146,7 +1146,7 @@ fn main() -> i32 {
 **Description:** Verify list output when no toolchains installed.
 
 **Preconditions:**
-- No toolchains installed (clean `~/.infs/`)
+- No toolchains installed (clean `~/.inference/`)
 
 **Steps:**
 1. Run `infs list`
@@ -1209,7 +1209,7 @@ fn main() -> i32 {
 **Expected Result:**
 - Exit code: 0
 - Version removed from list
-- Directory deleted from `~/.infs/toolchains/`
+- Directory deleted from `~/.inference/toolchains/`
 
 ---
 
@@ -1329,10 +1329,10 @@ fn main() -> i32 {
 **Description:** Verify error when toolchain directory not writable.
 
 **Preconditions:**
-- `~/.infs/toolchains/` exists and is read-only
+- `~/.inference/toolchains/` exists and is read-only
 
 **Steps:**
-1. Make directory read-only: `chmod 555 ~/.infs/toolchains`
+1. Make directory read-only: `chmod 555 ~/.inference/toolchains`
 2. Run `infs install`
 
 **Expected Result:**
@@ -1428,10 +1428,10 @@ fn main() -> i32 {
 **Description:** Verify doctor handles missing toolchain directory.
 
 **Preconditions:**
-- `~/.infs/` does not exist
+- `~/.inference/` does not exist
 
 **Steps:**
-1. Remove or rename `~/.infs/`
+1. Remove or rename `~/.inference/`
 2. Run `infs doctor`
 
 **Expected Result:**
@@ -1663,21 +1663,21 @@ fn main() -> i32 {
 
 ---
 
-#### TC-10.2: INFS_HOME Override
+#### TC-10.2: INFERENCE_HOME Override
 **Priority:** High
-**Description:** Verify INFS_HOME overrides toolchain directory.
+**Description:** Verify INFERENCE_HOME overrides toolchain directory.
 
 **Preconditions:**
 - Writable directory for custom home
 
 **Steps:**
-1. Set `INFS_HOME=/tmp/custom-infs`
+1. Set `INFERENCE_HOME=/tmp/custom-infs`
 2. Run `infs install`
 3. Check `/tmp/custom-infs/toolchains/`
 
 **Expected Result:**
 - Toolchain installed in custom directory
-- Default `~/.infs/` not modified
+- Default `~/.inference/` not modified
 
 ---
 
@@ -1767,7 +1767,7 @@ fn main() -> i32 {
 The `infc` compiler is located using a 3-tier priority system:
 1. `INFC_PATH` environment variable (highest priority)
 2. System PATH via `which infc`
-3. Managed toolchain at `~/.infs/toolchains/VERSION/bin/infc` (lowest priority)
+3. Managed toolchain at `~/.inference/toolchains/VERSION/bin/infc` (lowest priority)
 
 **Preconditions:**
 - Managed toolchain installed via `infs install`
@@ -1814,7 +1814,7 @@ The `infc` compiler is located using a 3-tier priority system:
 **Expected Result:**
 - Exit code: 0
 - Toolchain source shows "managed"
-- Location shows `~/.infs/toolchains/VERSION/bin/infc`
+- Location shows `~/.inference/toolchains/VERSION/bin/infc`
 
 ---
 
@@ -2079,7 +2079,7 @@ The `infc` compiler is located using a 3-tier priority system:
 - Corrupt the metadata file
 
 **Steps:**
-1. Corrupt `~/.infs/toolchains/VERSION/.metadata.json`
+1. Corrupt `~/.inference/toolchains/VERSION/.metadata.json`
 2. Run `infs list`
 3. Run `infs doctor`
 
@@ -2324,7 +2324,7 @@ rm -rf out/ proofs/ custom_proofs/ new_proofs/
 rm -rf myproject testproj nogitproject gitproject existing inittest somedir
 
 # Optional: Clean toolchain state
-rm -rf ~/.infs/  # WARNING: Removes all installed toolchains
+rm -rf ~/.inference/  # WARNING: Removes all installed toolchains
 ```
 
 ### Test Execution Order (Recommended)

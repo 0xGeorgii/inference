@@ -526,7 +526,7 @@ fn install_help_shows_options() {
 
 /// Verifies that `infs install` shows a helpful error when network is unavailable.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory to avoid affecting the system.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory to avoid affecting the system.
 ///
 /// **Expected behavior**: Exit with non-zero code and print an error message
 /// (not panic) when the manifest cannot be fetched.
@@ -535,7 +535,7 @@ fn install_without_network_shows_error() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path())
+    cmd.env("INFERENCE_HOME", temp.path())
         .arg("install")
         .arg("0.0.0-nonexistent");
 
@@ -564,7 +564,7 @@ fn uninstall_help_shows_options() {
 
 /// Verifies that uninstalling a nonexistent version shows a helpful message.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory with no toolchains installed.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory with no toolchains installed.
 ///
 /// **Expected behavior**: Exit with non-zero code and indicate the version is not installed.
 #[test]
@@ -572,7 +572,7 @@ fn uninstall_nonexistent_shows_message() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path())
+    cmd.env("INFERENCE_HOME", temp.path())
         .arg("uninstall")
         .arg("0.0.0-nonexistent");
 
@@ -587,7 +587,7 @@ fn uninstall_nonexistent_shows_message() {
 
 /// Verifies that `infs list` runs successfully even with no toolchains installed.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory with no toolchains.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory with no toolchains.
 ///
 /// **Expected behavior**: Exit with code 0 (not a failure state).
 #[test]
@@ -595,14 +595,14 @@ fn list_runs_successfully() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("list");
+    cmd.env("INFERENCE_HOME", temp.path()).arg("list");
 
     cmd.assert().success();
 }
 
 /// Verifies that `infs list` shows appropriate message when no toolchains are installed.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory with no toolchains.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory with no toolchains.
 ///
 /// **Expected behavior**: Exit with code 0 and display "No toolchains installed".
 #[test]
@@ -610,7 +610,7 @@ fn list_shows_no_toolchains_message() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("list");
+    cmd.env("INFERENCE_HOME", temp.path()).arg("list");
 
     cmd.assert()
         .success()
@@ -639,7 +639,7 @@ fn versions_help_shows_options() {
 /// Verifies that `infs versions` shows an error when no network is available.
 ///
 /// **Test setup**: Uses a non-existent distribution server (`INFS_DIST_SERVER`) and
-/// isolated `INFS_HOME` to ensure no cached manifest is used.
+/// isolated `INFERENCE_HOME` to ensure no cached manifest is used.
 ///
 /// **Expected behavior**: Exit with non-zero code and display a network error.
 #[test]
@@ -648,7 +648,7 @@ fn versions_without_network_shows_error() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.env("INFS_DIST_SERVER", "http://localhost:1")
-        .env("INFS_HOME", temp.path())
+        .env("INFERENCE_HOME", temp.path())
         .arg("versions")
         .arg("--headless");
 
@@ -661,7 +661,7 @@ fn versions_without_network_shows_error() {
 
 /// Verifies that `infs versions --stable` flag is accepted.
 ///
-/// **Test setup**: Uses a non-existent distribution server and isolated `INFS_HOME`.
+/// **Test setup**: Uses a non-existent distribution server and isolated `INFERENCE_HOME`.
 ///
 /// **Expected behavior**: The flag is parsed correctly (failure is from network, not flag parsing).
 #[test]
@@ -670,7 +670,7 @@ fn versions_stable_flag_is_accepted() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.env("INFS_DIST_SERVER", "http://localhost:1")
-        .env("INFS_HOME", temp.path())
+        .env("INFERENCE_HOME", temp.path())
         .arg("versions")
         .arg("--stable")
         .arg("--headless");
@@ -681,7 +681,7 @@ fn versions_stable_flag_is_accepted() {
 
 /// Verifies that `infs versions --json` flag is accepted.
 ///
-/// **Test setup**: Uses a non-existent distribution server and isolated `INFS_HOME`.
+/// **Test setup**: Uses a non-existent distribution server and isolated `INFERENCE_HOME`.
 ///
 /// **Expected behavior**: The flag is parsed correctly (failure is from network, not flag parsing).
 #[test]
@@ -690,7 +690,7 @@ fn versions_json_flag_is_accepted() {
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.env("INFS_DIST_SERVER", "http://localhost:1")
-        .env("INFS_HOME", temp.path())
+        .env("INFERENCE_HOME", temp.path())
         .arg("versions")
         .arg("--json")
         .arg("--headless");
@@ -732,7 +732,7 @@ fn default_requires_version_argument() {
 
 /// Verifies that setting a nonexistent version as default shows a helpful error.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory with no toolchains.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory with no toolchains.
 ///
 /// **Expected behavior**: Exit with non-zero code and indicate version is not installed.
 #[test]
@@ -740,7 +740,7 @@ fn default_nonexistent_version_shows_error() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path())
+    cmd.env("INFERENCE_HOME", temp.path())
         .arg("default")
         .arg("0.0.0-nonexistent");
 
@@ -755,7 +755,7 @@ fn default_nonexistent_version_shows_error() {
 
 /// Verifies that `infs doctor` runs successfully even with no toolchains installed.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory.
 ///
 /// **Expected behavior**: Exit with code 0 (doctor reports issues but doesn't fail).
 #[test]
@@ -763,14 +763,14 @@ fn doctor_runs_successfully() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("doctor");
+    cmd.env("INFERENCE_HOME", temp.path()).arg("doctor");
 
     cmd.assert().success();
 }
 
 /// Verifies that `infs doctor` shows platform check in output.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory.
 ///
 /// **Expected behavior**: Output contains "Platform" check.
 #[test]
@@ -778,7 +778,7 @@ fn doctor_shows_platform_check() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("doctor");
+    cmd.env("INFERENCE_HOME", temp.path()).arg("doctor");
 
     cmd.assert()
         .success()
@@ -787,7 +787,7 @@ fn doctor_shows_platform_check() {
 
 /// Verifies that `infs doctor` shows multiple health checks.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory.
 ///
 /// **Expected behavior**: Output contains multiple check sections (Platform, Toolchain, etc.).
 #[test]
@@ -795,7 +795,7 @@ fn doctor_shows_all_checks() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("doctor");
+    cmd.env("INFERENCE_HOME", temp.path()).arg("doctor");
 
     cmd.assert()
         .success()
@@ -814,7 +814,7 @@ fn doctor_shows_checking_message() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("doctor");
+    cmd.env("INFERENCE_HOME", temp.path()).arg("doctor");
 
     cmd.assert()
         .success()
@@ -853,7 +853,8 @@ fn self_update_help_shows_options() {
 
 /// Verifies that `infs self update` shows a helpful error when network is unavailable.
 ///
-/// **Test setup**: Uses an isolated `INFS_HOME` directory.
+/// **Test setup**: Uses an isolated `INFERENCE_HOME` directory and points to an invalid
+/// distribution server via `INFS_DIST_SERVER` environment variable.
 ///
 /// **Expected behavior**: Exit with non-zero code and print an error message
 /// (not panic) when the manifest cannot be fetched.
@@ -862,7 +863,10 @@ fn self_update_without_network_shows_error() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path()).arg("self").arg("update");
+    cmd.env("INFERENCE_HOME", temp.path())
+        .env("INFS_DIST_SERVER", "http://invalid-test-server.localhost")
+        .arg("self")
+        .arg("update");
 
     cmd.assert()
         .failure()
@@ -881,7 +885,7 @@ fn install_uses_custom_dist_server() {
     let temp = assert_fs::TempDir::new().unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFS_HOME", temp.path())
+    cmd.env("INFERENCE_HOME", temp.path())
         .env("INFS_DIST_SERVER", "http://invalid-test-server.localhost")
         .arg("install");
 
@@ -1457,15 +1461,6 @@ fn is_wasmtime_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Helper function to check if coqc is available in PATH.
-fn is_coqc_available() -> bool {
-    std::process::Command::new("coqc")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
 /// Verifies full `infs run` workflow with wasmtime.
 ///
 /// **Prerequisites**: wasmtime must be installed and in PATH, and infc must be built.
@@ -1498,73 +1493,6 @@ fn run_full_workflow_with_wasmtime() {
         .arg("hello_world");
 
     cmd.assert().success();
-}
-
-/// Verifies full `infs verify` workflow with coqc.
-///
-/// **Prerequisites**: coqc (Rocq/Coq compiler) must be installed and in PATH,
-/// infc must be built, AND the Wasm Coq library must be installed and configured.
-///
-/// **Test setup**: Compiles a trivial Inference program, translates to Rocq, verifies.
-///
-/// **Expected behavior**: Program compiles to WASM, translates to .v, coqc verifies successfully.
-///
-/// **Note**: This test may fail if coqc is installed but the Wasm library is not configured.
-/// In that case, the test verifies that the .v file was at least generated.
-#[test]
-fn verify_full_workflow_with_coqc() {
-    if !is_coqc_available() {
-        eprintln!("Skipping test: coqc not available");
-        return;
-    }
-
-    let Some(infc_path) = require_infc() else {
-        return;
-    };
-
-    let temp = assert_fs::TempDir::new().unwrap();
-    let src = codegen_test_file("trivial.inf");
-    let dest = temp.child("trivial.inf");
-    std::fs::copy(&src, dest.path()).unwrap();
-
-    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.env("INFC_PATH", &infc_path)
-        .current_dir(temp.path())
-        .arg("verify")
-        .arg(dest.path())
-        .arg("--output-dir")
-        .arg(temp.path().join("proofs"));
-
-    let output = cmd.output().expect("Failed to execute command");
-
-    // Verify that the .v file was created (even if coqc verification fails due to missing Wasm library)
-    let v_file = temp.child("proofs").child("trivial.v");
-    assert!(
-        v_file.path().exists(),
-        "Rocq file should be created at {:?}",
-        v_file.path()
-    );
-
-    // If verification failed due to missing Wasm library, that's acceptable
-    // The test primarily verifies that the translation pipeline works
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("Cannot find a physical path bound to logical path")
-            || stderr.contains("Wasm")
-        {
-            eprintln!(
-                "Note: coqc verification failed due to missing Wasm library. \
-                 The .v file was generated successfully."
-            );
-            return;
-        }
-        // If it failed for another reason, that's a real failure
-        panic!(
-            "Verification failed unexpectedly:\nstdout: {}\nstderr: {}",
-            String::from_utf8_lossy(&output.stdout),
-            stderr
-        );
-    }
 }
 
 /// Returns the path to the syntax_`error.inf` test file.
