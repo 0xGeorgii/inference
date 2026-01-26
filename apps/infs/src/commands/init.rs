@@ -15,7 +15,7 @@
 //!
 //! - Creates `Inference.toml` in the current directory
 //! - Creates `src/main.inf` with a basic entry point
-//! - Does not create tests/, proofs/, or .gitignore (unlike `new`)
+//! - If `.git/` exists, creates `.gitignore` and `.gitkeep` files (without overwriting)
 //! - Project name defaults to the directory name if not provided
 
 use anyhow::Result;

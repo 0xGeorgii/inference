@@ -67,6 +67,7 @@ pub fn create_project(name: &str, parent_path: Option<&Path>, init_git: bool) ->
     write_project_files(&project_path, name)?;
 
     if init_git {
+        write_git_files(&project_path)?;
         init_git_repository(&project_path);
     }
 
@@ -149,10 +150,42 @@ pub fn init_project(path: Option<&Path>, name: Option<&str>, create_src: bool) -
         }
     }
 
+    // If git is initialized, create git-related files (without overwriting existing ones)
+    if project_path.join(".git").exists() {
+        write_git_files_if_missing(project_path)?;
+    }
+
     Ok(())
 }
 
-/// Writes all project files to the project directory.
+/// Writes git-related files only if they don't already exist.
+fn write_git_files_if_missing(project_path: &Path) -> Result<()> {
+    let tests_gitkeep = project_path.join("tests").join(".gitkeep");
+    if !tests_gitkeep.exists() {
+        std::fs::create_dir_all(project_path.join("tests"))
+            .with_context(|| "Failed to create tests directory")?;
+        std::fs::write(&tests_gitkeep, "")
+            .with_context(|| "Failed to write tests/.gitkeep")?;
+    }
+
+    let proofs_gitkeep = project_path.join("proofs").join(".gitkeep");
+    if !proofs_gitkeep.exists() {
+        std::fs::create_dir_all(project_path.join("proofs"))
+            .with_context(|| "Failed to create proofs directory")?;
+        std::fs::write(&proofs_gitkeep, "")
+            .with_context(|| "Failed to write proofs/.gitkeep")?;
+    }
+
+    let gitignore_path = project_path.join(".gitignore");
+    if !gitignore_path.exists() {
+        std::fs::write(&gitignore_path, gitignore_content())
+            .with_context(|| "Failed to write .gitignore")?;
+    }
+
+    Ok(())
+}
+
+/// Writes core project files to the project directory.
 fn write_project_files(project_path: &Path, project_name: &str) -> Result<()> {
     let manifest_path = project_path.join("Inference.toml");
     std::fs::write(&manifest_path, manifest_content(project_name))
@@ -169,13 +202,19 @@ fn write_project_files(project_path: &Path, project_name: &str) -> Result<()> {
     let tests_dir = project_path.join("tests");
     std::fs::create_dir_all(&tests_dir)
         .with_context(|| format!("Failed to create tests directory: {}", tests_dir.display()))?;
-    std::fs::write(tests_dir.join(".gitkeep"), "")
-        .with_context(|| "Failed to write tests/.gitkeep")?;
 
     let proofs_dir = project_path.join("proofs");
     std::fs::create_dir_all(&proofs_dir)
         .with_context(|| format!("Failed to create proofs directory: {}", proofs_dir.display()))?;
-    std::fs::write(proofs_dir.join(".gitkeep"), "")
+
+    Ok(())
+}
+
+/// Writes git-related files (.gitignore, .gitkeep).
+fn write_git_files(project_path: &Path) -> Result<()> {
+    std::fs::write(project_path.join("tests").join(".gitkeep"), "")
+        .with_context(|| "Failed to write tests/.gitkeep")?;
+    std::fs::write(project_path.join("proofs").join(".gitkeep"), "")
         .with_context(|| "Failed to write proofs/.gitkeep")?;
 
     let gitignore_path = project_path.join(".gitignore");
@@ -311,6 +350,26 @@ mod tests {
     fn test_create_project_success() {
         let parent = temp_dir();
         let result = create_project("my_project", Some(&parent), false);
+
+        assert!(result.is_ok());
+        let project_path = result.unwrap();
+        assert!(project_path.exists());
+        assert!(project_path.join("Inference.toml").exists());
+        assert!(project_path.join("src").join("main.inf").exists());
+        assert!(project_path.join("tests").exists());
+        assert!(project_path.join("proofs").exists());
+        // With --no-git, git-related files should NOT be created
+        assert!(!project_path.join("tests").join(".gitkeep").exists());
+        assert!(!project_path.join("proofs").join(".gitkeep").exists());
+        assert!(!project_path.join(".gitignore").exists());
+
+        cleanup(&parent);
+    }
+
+    #[test]
+    fn test_create_project_with_git_creates_gitignore() {
+        let parent = temp_dir();
+        let result = create_project("git_enabled_project", Some(&parent), true);
 
         assert!(result.is_ok());
         let project_path = result.unwrap();

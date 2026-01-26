@@ -205,14 +205,20 @@ Both `version` and `infc_version` must be valid [semantic versions](https://semv
 infs new myproject
 ```
 
-Creates a new project with a default `Inference.toml`:
+Creates a new project with:
+- `Inference.toml` manifest
+- `src/main.inf` entry point
+- `tests/` and `proofs/` directories
+- `.gitignore` and `.gitkeep` files
+- Initialized git repository
 
-```toml
-[package]
-name = "myproject"
-version = "0.1.0"
-infc_version = "0.1.0"  # Detected automatically
+To skip git initialization:
+
+```bash
+infs new myproject --no-git
 ```
+
+This creates only the core project files without `.gitignore`, `.gitkeep`, or running `git init`.
 
 ### Using `infs init`
 
@@ -223,6 +229,8 @@ infs init
 ```
 
 Initializes an `Inference.toml` in an existing directory, using the directory name as the project name.
+
+If a `.git/` directory exists, `infs init` will also create `.gitignore` and `.gitkeep` files (without overwriting existing ones).
 
 ### Custom Project Name
 

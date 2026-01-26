@@ -117,10 +117,14 @@ Requires `coqc` (Rocq/Coq compiler) to be installed.
 ### Project Commands
 
 ```bash
-# Create a new project
+# Create a new project (with git initialization)
 infs new myproject
 
+# Create a new project without git
+infs new myproject --no-git
+
 # Initialize in current directory
+# If .git/ exists, creates .gitignore and .gitkeep files
 infs init
 ```
 
@@ -235,9 +239,9 @@ infs build example.inf # Uses managed toolchain
 |----------|---------|
 | `INFS_NO_TUI` | Disable interactive TUI (any value) |
 | `INFC_PATH` | Explicit path to `infc` binary (priority 1) |
-| `INFS_HOME` | Toolchain installation directory (default: `~/.infs`) |
-| `INFS_GITHUB_REPO` | Override GitHub repository for downloads |
-| `INFS_MANIFEST_URL` | Override release manifest URL |
+| `INFS_HOME` | Toolchain directory (default: `~/.infs`) |
+| `INFS_DIST_SERVER` | Distribution server URL (default: `https://inference-lang.org`) |
+| `INFS_MANIFEST_CACHE_TTL` | Cache TTL in seconds (default: 900) |
 
 ## Development
 

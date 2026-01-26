@@ -787,6 +787,28 @@ fn self_update_without_network_shows_error() {
         .stderr(predicate::str::contains("Error").or(predicate::str::contains("error")));
 }
 
+/// Verifies that `INFS_DIST_SERVER` environment variable is used for manifest fetching.
+///
+/// **Test setup**: Sets `INFS_DIST_SERVER` to an invalid test server URL and runs install.
+/// The cache TTL is set to 0 to force a network fetch.
+///
+/// **Expected behavior**: Exit with non-zero code and the error message should contain
+/// the custom server URL, proving the environment variable was used.
+#[test]
+fn install_uses_custom_dist_server() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFS_HOME", temp.path())
+        .env("INFS_DIST_SERVER", "http://invalid-test-server.localhost")
+        .env("INFS_MANIFEST_CACHE_TTL", "0")
+        .arg("install");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid-test-server"));
+}
+
 /// Verifies that `infs self` without a subcommand shows an error.
 ///
 /// **Expected behavior**: Exit with non-zero code when no subcommand is provided.
@@ -868,9 +890,10 @@ fn new_creates_project_structure() {
         project_dir.child("src").child("main.inf").path().exists(),
         "src/main.inf should exist"
     );
+    // With --no-git, .gitignore should NOT be created
     assert!(
-        project_dir.child(".gitignore").path().exists(),
-        ".gitignore should exist"
+        !project_dir.child(".gitignore").path().exists(),
+        ".gitignore should NOT exist with --no-git"
     );
     assert!(
         project_dir.child("tests").path().exists(),
@@ -1127,7 +1150,7 @@ fn init_uses_directory_name_as_default() {
 
 /// Verifies that file permissions are handled correctly for created project files.
 ///
-/// **Test setup**: Creates a project and checks file permissions.
+/// **Test setup**: Creates a project with git enabled and checks file permissions.
 ///
 /// **Expected behavior**: All generated files should be readable.
 #[test]
@@ -1137,8 +1160,8 @@ fn new_creates_files_with_correct_permissions() {
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
     cmd.current_dir(temp.path())
         .arg("new")
-        .arg("permission_test_project")
-        .arg("--no-git");
+        .arg("permission_test_project");
+    // Note: not using --no-git so .gitignore will be created
 
     cmd.assert().success();
 

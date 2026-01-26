@@ -10,7 +10,6 @@
 //! - [`platform`] - OS and architecture detection
 //! - [`paths`] - Toolchain directory path management
 //! - [`manifest`] - Release manifest fetching and parsing
-//! - [`github`] - GitHub API client for fetching releases
 //! - [`download`] - HTTP download with progress tracking
 //! - [`verify`] - SHA256 checksum verification
 //! - [`archive`] - ZIP archive extraction utilities
@@ -19,7 +18,6 @@
 pub mod archive;
 pub mod doctor;
 pub mod download;
-pub mod github;
 pub mod manifest;
 pub mod paths;
 pub mod platform;

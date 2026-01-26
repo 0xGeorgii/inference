@@ -3,7 +3,7 @@
 //! Release manifest handling for the infs toolchain.
 //!
 //! This module provides functionality for fetching and parsing the toolchain
-//! release manifest from a static JSON file.
+//! release manifest from a static distribution server.
 //!
 //! ## Manifest Format
 //!
@@ -29,24 +29,40 @@
 //! ]
 //! ```
 //!
+//! ## Data Source
+//!
+//! Release information is fetched from a static `releases.json` file hosted on
+//! the distribution server (default: `https://inference-lang.org`). The server
+//! can be overridden via the `INFS_DIST_SERVER` environment variable for testing
+//! or using a mirror.
+//!
 //! ## Caching
 //!
 //! The manifest is cached locally at `~/.infs/cache/manifest.json` with a 15-minute
 //! TTL (configurable via `INFS_MANIFEST_CACHE_TTL` environment variable for testing).
-//! On cache miss or expiry, the manifest is fetched from the static URL.
+//! On cache miss or expiry, the manifest is fetched from the distribution server.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Platform;
 
-/// URL for the release manifest.
-pub const MANIFEST_URL: &str = "https://inference-lang.org/releases/manifest.json";
+/// Environment variable to override the distribution server URL.
+pub const DIST_SERVER_ENV: &str = "INFS_DIST_SERVER";
 
-/// Environment variable to override the manifest URL.
-pub const MANIFEST_URL_ENV: &str = "INFS_MANIFEST_URL";
+/// Default distribution server URL.
+const DEFAULT_DIST_SERVER: &str = "https://inference-lang.org";
+
+/// Path to releases manifest on server.
+const RELEASES_PATH: &str = "/releases.json";
+
+/// Request timeout in seconds.
+const REQUEST_TIMEOUT_SECS: u64 = 30;
+
+/// User-Agent header for HTTP requests.
+const USER_AGENT: &str = "infs-toolchain-manager";
 
 /// Environment variable to override the cache TTL (in seconds) for testing.
 pub const CACHE_TTL_ENV: &str = "INFS_MANIFEST_CACHE_TTL";
@@ -284,11 +300,6 @@ fn save_to_cache(manifest: &Manifest) {
     let _ = std::fs::write(cache_file, content);
 }
 
-/// Returns the manifest URL, checking the environment variable first.
-fn manifest_url() -> String {
-    std::env::var(MANIFEST_URL_ENV).unwrap_or_else(|_| MANIFEST_URL.to_string())
-}
-
 /// Fetches the release manifest, using a local cache with 15-minute TTL.
 ///
 /// The manifest is cached at `~/.infs/cache/manifest.json`. If the cache is valid,
@@ -310,18 +321,46 @@ pub async fn fetch_manifest() -> Result<Manifest> {
     Ok(manifest)
 }
 
-/// Fetches the release manifest directly from the network, bypassing cache.
+/// Returns the URL to the releases manifest.
+///
+/// Checks the `INFS_DIST_SERVER` environment variable first, then falls back
+/// to the default distribution server. Empty or whitespace-only values are
+/// treated as unset.
+fn releases_url() -> String {
+    let server = std::env::var(DIST_SERVER_ENV)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_DIST_SERVER.to_string());
+    let server = server.trim().trim_end_matches('/');
+    format!("{server}{RELEASES_PATH}")
+}
+
+/// Handles HTTP errors with user-friendly messages.
+fn handle_http_error(status: reqwest::StatusCode, url: &str) -> anyhow::Error {
+    match status.as_u16() {
+        404 => anyhow::anyhow!("Release manifest not found at {url}"),
+        code if code >= 500 => anyhow::anyhow!("Server error ({code}): {url}"),
+        code => anyhow::anyhow!("HTTP error {code}: {url}"),
+    }
+}
+
+/// Fetches the release manifest directly from the distribution server, bypassing cache.
+///
+/// This function fetches the `releases.json` file from the configured distribution
+/// server (default: `https://inference-lang.org`).
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - The HTTP request fails
+/// - The server returns a non-success status code
 /// - The response cannot be parsed as JSON
 async fn fetch_manifest_from_network() -> Result<Manifest> {
-    let url = manifest_url();
+    let url = releases_url();
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        .user_agent(USER_AGENT)
         .build()
         .context("Failed to create HTTP client")?;
 
@@ -332,19 +371,16 @@ async fn fetch_manifest_from_network() -> Result<Manifest> {
         .with_context(|| format!("Failed to fetch manifest from {url}"))?;
 
     if !response.status().is_success() {
-        bail!(
-            "Failed to fetch manifest: HTTP {} from {url}",
-            response.status()
-        );
+        return Err(handle_http_error(response.status(), &url));
     }
 
     let text = response
         .text()
         .await
-        .with_context(|| format!("Failed to read manifest response from {url}"))?;
+        .with_context(|| format!("Failed to read response from {url}"))?;
 
     let manifest: Manifest = serde_json::from_str(&text)
-        .with_context(|| format!("Failed to parse manifest JSON from {url}"))?;
+        .with_context(|| format!("Failed to parse manifest from {url}"))?;
 
     Ok(manifest)
 }
@@ -609,8 +645,84 @@ mod tests {
     #[test]
     fn constants_have_expected_values() {
         assert_eq!(CACHE_TTL_ENV, "INFS_MANIFEST_CACHE_TTL");
-        assert_eq!(MANIFEST_URL_ENV, "INFS_MANIFEST_URL");
-        assert!(MANIFEST_URL.starts_with("https://"));
+        assert_eq!(DIST_SERVER_ENV, "INFS_DIST_SERVER");
+        assert_eq!(DEFAULT_DIST_SERVER, "https://inference-lang.org");
+        assert_eq!(RELEASES_PATH, "/releases.json");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn releases_url_uses_default_when_env_not_set() {
+        unsafe { std::env::remove_var(DIST_SERVER_ENV) };
+        let url = releases_url();
+        assert!(url.starts_with("https://inference-lang.org"));
+        assert!(url.ends_with("/releases.json"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn releases_url_uses_env_when_set() {
+        unsafe { std::env::set_var(DIST_SERVER_ENV, "http://localhost:8080") };
+        let url = releases_url();
+        assert_eq!(url, "http://localhost:8080/releases.json");
+        unsafe { std::env::remove_var(DIST_SERVER_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn releases_url_handles_trailing_slash() {
+        unsafe { std::env::set_var(DIST_SERVER_ENV, "http://localhost:8080/") };
+        let url = releases_url();
+        assert_eq!(url, "http://localhost:8080/releases.json");
+        unsafe { std::env::remove_var(DIST_SERVER_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn releases_url_uses_default_when_env_empty() {
+        unsafe { std::env::set_var(DIST_SERVER_ENV, "") };
+        let url = releases_url();
+        assert!(url.starts_with("https://inference-lang.org"));
+        assert!(url.ends_with("/releases.json"));
+        unsafe { std::env::remove_var(DIST_SERVER_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn releases_url_uses_default_when_env_whitespace_only() {
+        unsafe { std::env::set_var(DIST_SERVER_ENV, "   ") };
+        let url = releases_url();
+        assert!(url.starts_with("https://inference-lang.org"));
+        assert!(url.ends_with("/releases.json"));
+        unsafe { std::env::remove_var(DIST_SERVER_ENV) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn releases_url_trims_whitespace() {
+        unsafe { std::env::set_var(DIST_SERVER_ENV, "  http://localhost:8080  ") };
+        let url = releases_url();
+        assert_eq!(url, "http://localhost:8080/releases.json");
+        unsafe { std::env::remove_var(DIST_SERVER_ENV) };
+    }
+
+    #[test]
+    fn handle_http_error_404() {
+        let error = handle_http_error(reqwest::StatusCode::NOT_FOUND, "https://example.com");
+        assert!(error.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn handle_http_error_500() {
+        let error =
+            handle_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "https://example.com");
+        assert!(error.to_string().contains("500"));
+    }
+
+    #[test]
+    fn handle_http_error_generic() {
+        let error = handle_http_error(reqwest::StatusCode::BAD_REQUEST, "https://example.com");
+        assert!(error.to_string().contains("400"));
     }
 
     #[test]

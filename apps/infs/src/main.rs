@@ -63,7 +63,9 @@ mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{build, default, doctor, init, install, list, new, run, self_cmd, uninstall, verify, version};
+use commands::{
+    build, default, doctor, init, install, list, new, run, self_cmd, uninstall, verify, version,
+};
 use errors::InfsError;
 
 /// Inference unified CLI toolchain.
@@ -86,11 +88,11 @@ COMPILER RESOLUTION:
     3. Managed toolchain (~/.infs/toolchains/VERSION/bin/infc)
 
 ENVIRONMENT VARIABLES:
-    INFS_NO_TUI         When set (any value), disables the interactive TUI
-    INFC_PATH           Explicit path to the infc compiler binary (priority 1)
-    INFS_HOME           Toolchain installation directory (default: ~/.infs)
-    INFS_GITHUB_REPO    Override the GitHub repository for toolchain downloads
-    INFS_MANIFEST_URL   Override the URL for the release manifest"
+    INFS_NO_TUI             Disable interactive TUI
+    INFC_PATH               Explicit path to infc binary
+    INFS_HOME               Toolchain directory (default: ~/.infs)
+    INFS_DIST_SERVER        Distribution server URL (default: https://inference-lang.org)
+    INFS_MANIFEST_CACHE_TTL Cache TTL in seconds (default: 900)"
 )]
 pub struct Cli {
     /// Run in headless mode without TUI.
