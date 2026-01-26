@@ -22,6 +22,7 @@ pub mod manifest;
 pub mod paths;
 pub mod platform;
 pub mod resolver;
+pub mod shell;
 pub mod verify;
 
 pub use archive::extract_zip;

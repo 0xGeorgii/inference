@@ -107,16 +107,7 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
 
     if is_first_install {
         println!();
-        #[cfg(unix)]
-        {
-            println!("To use the toolchain, add to your shell profile:");
-            println!("  export PATH=\"{}:$PATH\"", paths.bin.display());
-        }
-        #[cfg(windows)]
-        {
-            println!("To use the toolchain, add the following directory to your PATH environment variable:");
-            println!("  {}", paths.bin.display());
-        }
+        configure_shell_path(&paths);
     }
 
     if current_default.is_some() && current_default.as_deref() != Some(&version) {
@@ -163,4 +154,33 @@ fn set_executable_permissions(dir: &Path) -> Result<()> {
 #[allow(clippy::unnecessary_wraps)]
 fn set_executable_permissions(_dir: &Path) -> Result<()> {
     Ok(())
+}
+
+/// Configures the user's PATH environment.
+///
+/// On Unix systems, attempts to automatically add the bin directory to PATH
+/// by modifying the user's shell profile. On Windows, modifies the user's
+/// PATH environment variable in the registry.
+fn configure_shell_path(paths: &ToolchainPaths) {
+    use crate::toolchain::shell::{configure_path, format_result_message};
+
+    match configure_path(&paths.bin) {
+        Ok(result) => {
+            let message = format_result_message(&result, &paths.bin);
+            println!("{message}");
+        }
+        Err(e) => {
+            eprintln!("Warning: Could not configure PATH automatically: {e}");
+            #[cfg(unix)]
+            {
+                println!("To use the toolchain, add to your shell profile:");
+                println!("  export PATH=\"{}:$PATH\"", paths.bin.display());
+            }
+            #[cfg(windows)]
+            {
+                println!("To use the toolchain, add to your PATH environment variable:");
+                println!("  {}", paths.bin.display());
+            }
+        }
+    }
 }
