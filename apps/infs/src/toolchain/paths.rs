@@ -35,6 +35,12 @@ pub const INFERENCE_HOME_ENV: &str = "INFERENCE_HOME";
 /// Metadata file name stored in each toolchain version directory.
 const METADATA_FILE: &str = ".metadata.json";
 
+/// Metadata file for the infs CLI itself.
+const INFS_METADATA_FILE: &str = "infs.json";
+
+/// Current schema version for infs metadata.
+const INFS_METADATA_SCHEMA_VERSION: u32 = 1;
+
 /// Metadata about a toolchain installation.
 ///
 /// This is stored in each toolchain version directory as `.metadata.json`.
@@ -42,6 +48,115 @@ const METADATA_FILE: &str = ".metadata.json";
 pub struct ToolchainMetadata {
     /// ISO 8601 timestamp of when the toolchain was installed.
     pub installed_at: String,
+}
+
+/// Metadata about the infs CLI itself (not toolchains).
+///
+/// This is stored at the root of the inference directory as `infs.json`.
+/// It tracks when the infs CLI first initialized the directory and allows
+/// for future migrations through the schema version field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InfsMetadata {
+    /// Version of infs that created/updated this file.
+    pub version: String,
+    /// When the inference directory was first created (ISO 8601 date).
+    pub created_at: String,
+    /// Schema version for future migrations.
+    pub schema_version: u32,
+}
+
+impl InfsMetadata {
+    /// Creates new metadata with the current version and timestamp.
+    #[must_use = "returns new metadata without side effects"]
+    pub fn new() -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        Self {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            created_at: format_timestamp_iso8601(timestamp),
+            schema_version: INFS_METADATA_SCHEMA_VERSION,
+        }
+    }
+}
+
+impl Default for InfsMetadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Represents a date and time calculated from a Unix timestamp.
+struct DateTime {
+    year: u64,
+    month: u64,
+    day: u64,
+    hours: u64,
+    minutes: u64,
+    seconds: u64,
+}
+
+impl DateTime {
+    /// Creates a `DateTime` from a Unix timestamp.
+    fn from_timestamp(timestamp: u64) -> Self {
+        let days_since_epoch = timestamp / 86400;
+        let secs_today = timestamp % 86400;
+
+        let hours = secs_today / 3600;
+        let minutes = (secs_today % 3600) / 60;
+        let seconds = secs_today % 60;
+
+        let mut year = 1970;
+        let mut remaining_days = days_since_epoch;
+
+        loop {
+            let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+            if remaining_days < days_in_year {
+                break;
+            }
+            remaining_days -= days_in_year;
+            year += 1;
+        }
+
+        let month_days: [u64; 12] = if is_leap_year(year) {
+            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        } else {
+            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        };
+
+        let mut month: u64 = 0;
+        for (i, &days) in month_days.iter().enumerate() {
+            if remaining_days < days {
+                month = (i + 1) as u64;
+                break;
+            }
+            remaining_days -= days;
+        }
+
+        let day = remaining_days + 1;
+
+        Self {
+            year,
+            month,
+            day,
+            hours,
+            minutes,
+            seconds,
+        }
+    }
+}
+
+/// Formats a Unix timestamp as an ISO 8601 datetime string (YYYY-MM-DDTHH:MM:SSZ).
+fn format_timestamp_iso8601(timestamp: u64) -> String {
+    let dt = DateTime::from_timestamp(timestamp);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        dt.year, dt.month, dt.day, dt.hours, dt.minutes, dt.seconds
+    )
 }
 
 impl ToolchainMetadata {
@@ -69,46 +184,8 @@ impl ToolchainMetadata {
 
 /// Formats a Unix timestamp as an ISO 8601 date string (YYYY-MM-DD).
 fn format_timestamp(timestamp: u64) -> String {
-    use std::time::{Duration, UNIX_EPOCH};
-
-    let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    let Ok(duration_since_unix) = datetime.duration_since(UNIX_EPOCH) else {
-        return "unknown".to_string();
-    };
-
-    let secs = duration_since_unix.as_secs();
-    let days_since_epoch = secs / 86400;
-
-    let mut year = 1970;
-    let mut remaining_days = days_since_epoch;
-
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
-
-    let month_days: [u64; 12] = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 0;
-    for (i, &days) in month_days.iter().enumerate() {
-        if remaining_days < days {
-            month = i + 1;
-            break;
-        }
-        remaining_days -= days;
-    }
-
-    let day = remaining_days + 1;
-
-    format!("{year:04}-{month:02}-{day:02}")
+    let dt = DateTime::from_timestamp(timestamp);
+    format!("{:04}-{:02}-{:02}", dt.year, dt.month, dt.day)
 }
 
 /// Checks if a year is a leap year.
@@ -194,6 +271,9 @@ pub struct ToolchainPaths {
 }
 
 impl ToolchainPaths {
+    /// Names of binaries managed by the toolchain.
+    pub const MANAGED_BINARIES: [&'static str; 3] = ["infc", "inf-llc", "rust-lld"];
+
     /// Creates a new `ToolchainPaths` instance.
     ///
     /// The root directory is determined by:
@@ -254,6 +334,41 @@ impl ToolchainPaths {
     #[must_use = "returns the path without side effects"]
     pub fn default_file(&self) -> PathBuf {
         self.root.join("default")
+    }
+
+    /// Returns the path to the infs metadata file.
+    #[must_use = "returns the path without side effects"]
+    pub fn infs_metadata_path(&self) -> PathBuf {
+        self.root.join(INFS_METADATA_FILE)
+    }
+
+    /// Writes infs metadata to the metadata file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the metadata file cannot be written.
+    pub fn write_infs_metadata(&self, metadata: &InfsMetadata) -> Result<()> {
+        let path = self.infs_metadata_path();
+        let content = serde_json::to_string_pretty(metadata)
+            .context("Failed to serialize infs metadata")?;
+        std::fs::write(&path, content)
+            .with_context(|| format!("Failed to write infs metadata to {}", path.display()))?;
+        Ok(())
+    }
+
+    /// Ensures infs metadata exists, creating it if needed.
+    ///
+    /// This is called during first-launch initialization to record when the
+    /// inference directory was first created.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the metadata file cannot be written.
+    pub fn ensure_infs_metadata(&self) -> Result<()> {
+        if !self.infs_metadata_path().exists() {
+            self.write_infs_metadata(&InfsMetadata::new())?;
+        }
+        Ok(())
     }
 
     /// Returns the path for a downloaded archive file.
@@ -335,15 +450,17 @@ impl ToolchainPaths {
     /// Ensures all required directories exist.
     ///
     /// Creates the root, toolchains, bin, and downloads directories if they don't exist.
+    /// Also ensures the infs metadata file exists for first-launch initialization.
     ///
     /// # Errors
     ///
-    /// Returns an error if any directory cannot be created.
+    /// Returns an error if any directory cannot be created or metadata cannot be written.
     pub fn ensure_directories(&self) -> Result<()> {
         for dir in [&self.root, &self.toolchains, &self.bin, &self.downloads] {
             std::fs::create_dir_all(dir)
                 .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
         }
+        self.ensure_infs_metadata()?;
         Ok(())
     }
 
@@ -437,17 +554,12 @@ impl ToolchainPaths {
         let platform = crate::toolchain::Platform::detect()?;
         let ext = platform.executable_extension();
 
-        let binaries = [
-            format!("infc{ext}"),
-            format!("inf-llc{ext}"),
-            format!("rust-lld{ext}"),
-        ];
-
         std::fs::create_dir_all(&self.bin)
             .with_context(|| format!("Failed to create bin directory: {}", self.bin.display()))?;
 
-        for binary in &binaries {
-            self.create_symlink(version, binary)?;
+        for name in Self::MANAGED_BINARIES {
+            let binary = format!("{name}{ext}");
+            self.create_symlink(version, &binary)?;
         }
 
         Ok(())
@@ -464,14 +576,9 @@ impl ToolchainPaths {
         let platform = crate::toolchain::Platform::detect()?;
         let ext = platform.executable_extension();
 
-        let binaries = [
-            format!("infc{ext}"),
-            format!("inf-llc{ext}"),
-            format!("rust-lld{ext}"),
-        ];
-
-        for binary in &binaries {
-            self.remove_symlink(binary)?;
+        for name in Self::MANAGED_BINARIES {
+            let binary = format!("{name}{ext}");
+            self.remove_symlink(&binary)?;
         }
 
         Ok(())
@@ -606,5 +713,86 @@ mod tests {
     fn relative_time_today() {
         let metadata = ToolchainMetadata::now();
         assert_eq!(metadata.installed_ago(), "today");
+    }
+
+    #[test]
+    fn infs_metadata_path_constructs_correctly() {
+        let temp_dir = env::temp_dir().join("infs_test_infs_metadata_path");
+        let paths = ToolchainPaths::with_root(temp_dir.clone());
+
+        assert_eq!(paths.infs_metadata_path(), temp_dir.join("infs.json"));
+    }
+
+    #[test]
+    fn infs_metadata_new_creates_valid_metadata() {
+        let metadata = InfsMetadata::new();
+
+        assert!(!metadata.version.is_empty());
+        assert!(metadata.created_at.contains('T'));
+        assert!(metadata.created_at.ends_with('Z'));
+        assert_eq!(metadata.schema_version, INFS_METADATA_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn infs_metadata_default_same_as_new() {
+        let default_metadata = InfsMetadata::default();
+        let new_metadata = InfsMetadata::new();
+
+        assert_eq!(default_metadata.schema_version, new_metadata.schema_version);
+        assert_eq!(default_metadata.version, new_metadata.version);
+    }
+
+    #[test]
+    fn format_timestamp_iso8601_produces_valid_format() {
+        let ts = format_timestamp_iso8601(0);
+        assert_eq!(ts, "1970-01-01T00:00:00Z");
+
+        let ts = format_timestamp_iso8601(86400 + 3661);
+        assert_eq!(ts, "1970-01-02T01:01:01Z");
+    }
+
+    #[test]
+    fn ensure_infs_metadata_creates_file_if_missing() {
+        let temp_dir = env::temp_dir().join("infs_test_ensure_meta");
+        let paths = ToolchainPaths::with_root(temp_dir.clone());
+
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        assert!(!paths.infs_metadata_path().exists());
+        paths.ensure_infs_metadata().unwrap();
+        assert!(paths.infs_metadata_path().exists());
+
+        let content = std::fs::read_to_string(paths.infs_metadata_path()).unwrap();
+        let metadata: InfsMetadata = serde_json::from_str(&content).unwrap();
+        assert!(!metadata.version.is_empty());
+        assert!(metadata.created_at.contains('T'));
+        assert_eq!(metadata.schema_version, INFS_METADATA_SCHEMA_VERSION);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn ensure_infs_metadata_does_not_overwrite_existing() {
+        let temp_dir = env::temp_dir().join("infs_test_ensure_meta_nooverwrite");
+        let paths = ToolchainPaths::with_root(temp_dir.clone());
+
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let original = InfsMetadata {
+            version: "0.0.1-test".to_string(),
+            created_at: "2020-01-01T00:00:00Z".to_string(),
+            schema_version: 999,
+        };
+        paths.write_infs_metadata(&original).unwrap();
+
+        paths.ensure_infs_metadata().unwrap();
+
+        let content = std::fs::read_to_string(paths.infs_metadata_path()).unwrap();
+        let read_metadata: InfsMetadata = serde_json::from_str(&content).unwrap();
+        assert_eq!(read_metadata.version, "0.0.1-test");
+        assert_eq!(read_metadata.created_at, "2020-01-01T00:00:00Z");
+        assert_eq!(read_metadata.schema_version, 999);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

@@ -116,6 +116,7 @@ infs init
 
 ```bash
 # Install latest stable toolchain (or latest if no stable versions exist)
+# First install automatically configures PATH
 infs install
 
 # Install specific version
@@ -130,6 +131,33 @@ infs default 0.1.0
 # Check installation health
 infs doctor
 ```
+
+**Automatic PATH Configuration:**
+
+On first install, `infs install` automatically adds the toolchain binaries to your system PATH:
+
+- **Unix (Linux/macOS)**: Modifies shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`)
+- **Windows**: Updates user PATH in registry (`HKCU\Environment\Path`)
+
+The toolchain binaries are symlinked to `~/.inference/bin/` and made accessible system-wide:
+- `infc` - Inference compiler
+- `inf-llc` - LLVM backend
+- `rust-lld` - WebAssembly linker
+
+After installation completes, restart your terminal or run:
+
+```bash
+# Linux/macOS with bash
+source ~/.bashrc
+
+# Linux/macOS with zsh
+source ~/.zshrc
+
+# Windows
+# Close and reopen terminal
+```
+
+Manual PATH configuration is no longer required. The installed binaries will be available in new terminal sessions.
 
 ## Interactive TUI
 

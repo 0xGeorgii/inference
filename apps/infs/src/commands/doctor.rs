@@ -22,7 +22,9 @@
 
 use anyhow::Result;
 
+use crate::toolchain::conflict::{detect_path_conflicts, format_doctor_conflict_warning};
 use crate::toolchain::doctor::{run_all_checks, DoctorCheckStatus};
+use crate::toolchain::ToolchainPaths;
 
 /// Executes the doctor command.
 ///
@@ -48,6 +50,20 @@ pub async fn execute() -> Result<()> {
             DoctorCheckStatus::Ok => {}
             DoctorCheckStatus::Warning => has_warnings = true,
             DoctorCheckStatus::Error => has_errors = true,
+        }
+    }
+
+    if let Ok(paths) = ToolchainPaths::new() {
+        let conflicts = detect_path_conflicts(&paths.bin);
+        if !conflicts.is_empty() {
+            has_warnings = true;
+            println!();
+            println!("  [WARN] PATH conflict detected:");
+            for line in format_doctor_conflict_warning(&conflicts) {
+                if !line.is_empty() {
+                    println!("         {line}");
+                }
+            }
         }
     }
 

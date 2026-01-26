@@ -66,7 +66,25 @@ xcode-select --install
 
 Before running the test suite, ensure `infs` is accessible from your terminal.
 
-**Option 1: Add to PATH (Recommended for Testing)**
+**Recommended: Automatic PATH Configuration**
+
+If you install a toolchain via `infs install`, the first installation automatically configures your system PATH:
+
+```bash
+infs install
+
+# After installation completes, restart your terminal or source your profile:
+source ~/.bashrc    # for bash
+source ~/.zshrc     # for zsh
+
+# On Windows, simply restart your terminal
+```
+
+The installed toolchain binaries (`infc`, `inf-llc`, `rust-lld`) will be available in `~/.inference/bin/` (Unix) or `%USERPROFILE%\.inference\bin\` (Windows).
+
+**Alternative: Manual PATH Setup**
+
+If you're testing a local build of `infs` before installation:
 
 Linux/macOS:
 ```bash
@@ -87,38 +105,6 @@ $env:PATH += ";C:\path\to\infs\directory"
 [Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";C:\path\to\infs\directory", "User")
 ```
 
-Windows (Command Prompt):
-```cmd
-:: Add to current session
-set PATH=%PATH%;C:\path\to\infs\directory
-
-:: Add permanently via System Properties > Environment Variables
-```
-
-**Option 2: Use Full Path**
-
-You can also run tests using the full path to the binary:
-```bash
-# Linux/macOS
-/full/path/to/infs --version
-
-# Windows
-C:\full\path\to\infs.exe --version
-```
-
-**Option 3: Symlink to Standard Location**
-
-Linux/macOS:
-```bash
-# Create symlink in /usr/local/bin (requires sudo)
-sudo ln -s /path/to/infs /usr/local/bin/infs
-
-# Or in user-local bin (no sudo required)
-mkdir -p ~/.local/bin
-ln -s /path/to/infs ~/.local/bin/infs
-export PATH="$PATH:$HOME/.local/bin"
-```
-
 **Verifying Path Setup:**
 ```bash
 # Check if infs is found
@@ -133,10 +119,10 @@ infs --version
 
 | Issue | Solution |
 |-------|----------|
-| `command not found` / `not recognized` | Verify PATH includes the directory containing `infs` |
+| `command not found` / `not recognized` | Verify PATH includes the directory containing `infs`, or run `infs install` to configure automatically |
 | Permission denied (Linux/macOS) | Run `chmod +x /path/to/infs` to make it executable |
 | Wrong version running | Check `which infs` to see which binary is being used |
-| PATH changes don't persist | Ensure you added to the correct shell config file (`.bashrc`, `.zshrc`, `.profile`) |
+| PATH changes don't persist after `infs install` | Restart your terminal after installation completes |
 
 ### Environment Setup
 
@@ -1051,7 +1037,7 @@ fn main() -> i32 {
 
 #### TC-6.1: Install Latest
 **Priority:** Critical
-**Description:** Verify installation of latest toolchain version.
+**Description:** Verify installation of latest toolchain version and automatic PATH configuration.
 
 **Preconditions:**
 - Network access available
@@ -1060,12 +1046,18 @@ fn main() -> i32 {
 **Steps:**
 1. Run `infs install`
 2. Check `~/.inference/toolchains/`
+3. Restart terminal or source shell profile
+4. Verify binaries in PATH: `which infc inf-llc rust-lld` (Unix) or `where infc inf-llc rust-lld` (Windows)
 
 **Expected Result:**
 - Exit code: 0
 - Progress displayed during download
 - Toolchain installed in `~/.inference/toolchains/X.Y.Z/`
 - Set as default if first installation
+- On first install, PATH automatically configured:
+  - Unix: Shell profile updated (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`)
+  - Windows: User PATH in registry updated (`HKCU\Environment\Path`)
+- After terminal restart, `infc`, `inf-llc`, and `rust-lld` accessible from PATH
 
 ---
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### infs CLI
 
+- Add automatic PATH configuration on first install ([#96])
+  - Unix: Modifies shell profile (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`)
+  - Windows: Modifies user PATH in registry (`HKCU\Environment\Path`)
+  - Users only need to restart their terminal after installation
+- Rename environment variable and directory for consistency ([#96])
+  - `INFS_HOME` → `INFERENCE_HOME`
+  - `~/.infs` → `~/.inference`
+- Add `infc` symlink to installed toolchain alongside `inf-llc` and `rust-lld` ([#96])
 - Fix `infs install` and `infs self update` to fall back to latest pre-release version when no stable versions exist ([#96])
   - Previously failed with "No stable version found in manifest" error
   - Now uses latest stable version if available, otherwise falls back to latest version regardless of stability

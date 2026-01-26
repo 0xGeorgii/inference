@@ -17,6 +17,7 @@ use anyhow::Result;
 use clap::Args;
 use std::path::Path;
 
+use crate::toolchain::conflict::{detect_path_conflicts, format_conflict_warning};
 use crate::toolchain::paths::ToolchainMetadata;
 use crate::toolchain::{
     Platform, ToolchainPaths, download_file, extract_zip, fetch_artifact, verify_checksum,
@@ -108,6 +109,12 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
     if is_first_install {
         println!();
         configure_shell_path(&paths);
+    }
+
+    let conflicts = detect_path_conflicts(&paths.bin);
+    if !conflicts.is_empty() {
+        eprintln!();
+        eprintln!("{}", format_conflict_warning(&conflicts));
     }
 
     if current_default.is_some() && current_default.as_deref() != Some(&version) {

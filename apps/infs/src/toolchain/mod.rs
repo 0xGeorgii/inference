@@ -14,8 +14,10 @@
 //! - [`verify`] - SHA256 checksum verification
 //! - [`archive`] - ZIP archive extraction utilities
 //! - [`doctor`] - Toolchain health checks
+//! - [`conflict`] - PATH conflict detection
 
 pub mod archive;
+pub mod conflict;
 pub mod doctor;
 pub mod download;
 pub mod manifest;
