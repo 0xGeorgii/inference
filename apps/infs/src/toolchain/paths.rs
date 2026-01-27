@@ -543,7 +543,9 @@ impl ToolchainPaths {
     /// Returns an error if the symlink cannot be removed.
     pub fn remove_symlink(&self, binary_name: &str) -> Result<()> {
         let target = self.symlink_path(binary_name);
-        if target.exists() {
+        // Use symlink_metadata to detect symlinks even if broken (target doesn't exist).
+        // exists() returns false for broken symlinks, but symlink_metadata succeeds.
+        if target.symlink_metadata().is_ok() {
             std::fs::remove_file(&target)
                 .with_context(|| format!("Failed to remove symlink: {}", target.display()))?;
         }
@@ -616,6 +618,55 @@ impl ToolchainPaths {
         for name in Self::MANAGED_BINARIES {
             let binary = format!("{name}{ext}");
             self.remove_symlink(&binary)?;
+        }
+
+        Ok(())
+    }
+
+    /// Checks if symlinks in the bin directory are valid (point to existing binaries).
+    ///
+    /// Returns a list of binary names that have broken symlinks.
+    #[must_use = "returns list of broken symlinks without side effects"]
+    pub fn validate_symlinks(&self) -> Vec<String> {
+        let Ok(platform) = crate::toolchain::Platform::detect() else {
+            return Vec::new();
+        };
+        let ext = platform.executable_extension();
+
+        let mut broken = Vec::new();
+        for name in Self::MANAGED_BINARIES {
+            let binary = format!("{name}{ext}");
+            let symlink_path = self.symlink_path(&binary);
+
+            // Check if symlink exists (as a symlink, even if broken) but target does not
+            if symlink_path.symlink_metadata().is_ok() && !symlink_path.exists() {
+                broken.push(binary);
+            }
+        }
+        broken
+    }
+
+    /// Repairs broken symlinks by updating them to point to the default version,
+    /// or removing them if no valid default exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if symlinks cannot be updated or removed.
+    pub fn repair_symlinks(&self) -> Result<()> {
+        let broken = self.validate_symlinks();
+        if broken.is_empty() {
+            return Ok(());
+        }
+
+        let default_version = self.get_default_version()?;
+
+        match default_version {
+            Some(version) if self.is_version_installed(&version) => {
+                self.update_symlinks(&version)?;
+            }
+            _ => {
+                self.remove_symlinks()?;
+            }
         }
 
         Ok(())

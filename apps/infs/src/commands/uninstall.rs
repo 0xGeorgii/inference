@@ -62,6 +62,7 @@ pub async fn execute(args: &UninstallArgs) -> Result<()> {
         )
     })?;
 
+    // Handle symlinks and default version
     if is_default {
         let remaining_versions = paths.list_installed_versions()?;
 
@@ -72,10 +73,18 @@ pub async fn execute(args: &UninstallArgs) -> Result<()> {
         } else {
             let new_default = remaining_versions
                 .last()
-                .expect("remaining_versions is non-empty, checked above");
+                .expect("remaining_versions is non-empty");
             paths.set_default_version(new_default)?;
             paths.update_symlinks(new_default)?;
             println!("Default toolchain changed to {new_default}.");
+        }
+    } else {
+        // Even if not uninstalling the default, validate and repair symlinks.
+        // This handles edge cases where symlinks might be broken.
+        let broken_symlinks = paths.validate_symlinks();
+        if !broken_symlinks.is_empty() {
+            println!("Repairing broken symlinks...");
+            paths.repair_symlinks()?;
         }
     }
 

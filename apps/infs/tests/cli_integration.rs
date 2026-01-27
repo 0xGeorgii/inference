@@ -734,7 +734,8 @@ fn default_requires_version_argument() {
 ///
 /// **Test setup**: Uses an isolated `INFERENCE_HOME` directory with no toolchains.
 ///
-/// **Expected behavior**: Exit with non-zero code and indicate version is not installed.
+/// **Expected behavior**: Exit with non-zero code and indicate version is not installed
+/// or does not exist (depending on whether the version exists in the release manifest).
 #[test]
 fn default_nonexistent_version_shows_error() {
     let temp = assert_fs::TempDir::new().unwrap();
@@ -746,7 +747,10 @@ fn default_nonexistent_version_shows_error() {
 
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("not installed"));
+        .stderr(
+            predicate::str::contains("not installed")
+                .or(predicate::str::contains("does not exist")),
+        );
 }
 
 // -----------------------------------------------------------------------------

@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix `infs install` failing with nested archive structure from GitHub releases ([#96])
   - GitHub releases wrap tar.gz archives in ZIP files
   - Now automatically detects and extracts nested tar.gz after ZIP extraction
+- Fix `infs uninstall` leaving broken symlinks when removing non-default toolchains ([#96])
+  - Previously, `Path::exists()` returned false for broken symlinks, causing them to remain in `~/.inference/bin/`
+  - Now uses `symlink_metadata().is_ok()` to correctly detect and remove both valid and broken symlinks
+  - Added `validate_symlinks()` to check for broken symlinks after uninstallation
+  - Added `repair_symlinks()` to automatically fix broken symlinks by updating them to the default version or removing them
 
 ### Build
 

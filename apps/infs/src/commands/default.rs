@@ -14,6 +14,7 @@ use anyhow::{Result, bail};
 use clap::Args;
 
 use crate::toolchain::ToolchainPaths;
+use crate::toolchain::manifest::{fetch_manifest, find_version};
 
 /// Arguments for the default command.
 #[derive(Args)]
@@ -34,17 +35,36 @@ pub struct DefaultArgs {
 ///
 /// Returns an error if:
 /// - The version is not installed
+/// - The version does not exist in the release manifest
 /// - Symlink creation fails
-#[allow(clippy::unused_async)]
 pub async fn execute(args: &DefaultArgs) -> Result<()> {
     let paths = ToolchainPaths::new()?;
     let version = &args.version;
 
     if !paths.is_version_installed(version) {
-        bail!(
-            "Toolchain version {version} is not installed.\n\
-             Run 'infs install {version}' to install it first."
-        );
+        match fetch_manifest().await {
+            Ok(manifest) => {
+                if find_version(&manifest, version).is_some() {
+                    // Version exists in manifest but not installed locally
+                    bail!(
+                        "Toolchain version {version} is not installed.\n\
+                         Run 'infs install {version}' to install it first."
+                    );
+                }
+                // Version does not exist in manifest at all
+                bail!(
+                    "Toolchain version {version} does not exist.\n\
+                     Run 'infs versions' to see available versions."
+                );
+            }
+            Err(_) => {
+                // Network error - graceful degradation with both suggestions
+                bail!(
+                    "Toolchain version {version} is not installed.\n\
+                     Run 'infs install {version}' to install it, or 'infs versions' to see available versions."
+                );
+            }
+        }
     }
 
     let current_default = paths.get_default_version()?;
