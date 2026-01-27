@@ -320,12 +320,14 @@ pub fn format_result_message(result: &ConfigureResult, bin_path: &Path) -> Strin
         ConfigureResult::AlreadyConfigured { profile } => {
             format!("PATH already configured in {}", profile.display())
         }
+        #[cfg(unix)]
         ConfigureResult::NoProfileFound => {
             format!(
                 "Could not find shell profile. To use the toolchain, add to your PATH:\n  {}",
                 format_manual_path_instruction(bin_path)
             )
         }
+        #[cfg(unix)]
         ConfigureResult::ShellNotDetected => {
             format!(
                 "Could not detect shell. To use the toolchain, add to your PATH:\n  {}",
