@@ -135,3 +135,106 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, is_empty: bool) {
 
     frame.render_widget(help, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::ToolchainInfo;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn create_test_terminal() -> Terminal<TestBackend> {
+        let backend = TestBackend::new(80, 24);
+        Terminal::new(backend).expect("Should create terminal")
+    }
+
+    #[test]
+    fn render_empty_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = ToolchainsState::default();
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_with_toolchains_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = ToolchainsState {
+            toolchains: vec![
+                ToolchainInfo {
+                    version: "0.2.0".to_string(),
+                    is_default: true,
+                    metadata: None,
+                },
+                ToolchainInfo {
+                    version: "0.1.0".to_string(),
+                    is_default: false,
+                    metadata: None,
+                },
+            ],
+            selected: 0,
+            loaded: true,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_with_selection_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = ToolchainsState {
+            toolchains: vec![
+                ToolchainInfo {
+                    version: "0.2.0".to_string(),
+                    is_default: true,
+                    metadata: None,
+                },
+                ToolchainInfo {
+                    version: "0.1.0".to_string(),
+                    is_default: false,
+                    metadata: None,
+                },
+            ],
+            selected: 1,
+            loaded: true,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_single_default_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = ToolchainsState {
+            toolchains: vec![ToolchainInfo {
+                version: "0.1.0".to_string(),
+                is_default: true,
+                metadata: None,
+            }],
+            selected: 0,
+            loaded: true,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+}

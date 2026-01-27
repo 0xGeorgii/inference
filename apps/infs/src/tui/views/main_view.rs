@@ -221,3 +221,105 @@ fn render_status(frame: &mut Frame, area: Rect, theme: &Theme, status_message: &
     let status = Paragraph::new(status_message).style(Style::default().fg(theme.muted));
     frame.render_widget(status, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn create_test_terminal() -> Terminal<TestBackend> {
+        let backend = TestBackend::new(80, 24);
+        Terminal::new(backend).expect("Should create terminal")
+    }
+
+    #[test]
+    fn render_main_view_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let menu = Menu::new();
+
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    frame.area(),
+                    &theme,
+                    &menu,
+                    "",
+                    false,
+                    "",
+                    0,
+                );
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_command_mode_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let menu = Menu::new();
+
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    frame.area(),
+                    &theme,
+                    &menu,
+                    "build --parse",
+                    true,
+                    "Ready",
+                    5,
+                );
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_with_menu_selection_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let mut menu = Menu::new();
+        menu.down();
+
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    frame.area(),
+                    &theme,
+                    &menu,
+                    "",
+                    false,
+                    "Status message",
+                    0,
+                );
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_with_long_command_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let menu = Menu::new();
+        let long_command = "build very/long/path/to/file.inf --parse --analyze --codegen -o";
+
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    frame.area(),
+                    &theme,
+                    &menu,
+                    long_command,
+                    true,
+                    "",
+                    long_command.len(),
+                );
+            })
+            .expect("Should render");
+    }
+}

@@ -61,49 +61,33 @@ use assert_fs::prelude::*;
 use predicates::prelude::*;
 use std::process::Command;
 
-/// Resolves the path to a test data file in the `tests/test_data/inf/` directory.
-///
-/// This function navigates from the infs crate's manifest directory up to the
-/// workspace root and then down into the test data directory.
+/// Resolves the path to a test fixture file in the `tests/fixtures/` directory.
 ///
 /// ## Path Resolution
 ///
 /// ```text
 /// env!("CARGO_MANIFEST_DIR")  // apps/infs/
-///   .parent()                 // apps/
-///   .parent()                 // workspace root
 ///   .join("tests")
-///   .join("test_data")
-///   .join("inf")
+///   .join("fixtures")
 ///   .join(name)
 /// ```
-fn example_file(name: &str) -> std::path::PathBuf {
+fn fixture_file(name: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
         .join("tests")
-        .join("test_data")
-        .join("inf")
+        .join("fixtures")
         .join(name)
 }
 
-/// Resolves the path to a codegen test data file in `tests/test_data/codegen/wasm/base/`.
+/// Resolves the path to a test data file (alias for fixture_file).
+fn example_file(name: &str) -> std::path::PathBuf {
+    fixture_file(name)
+}
+
+/// Resolves the path to a codegen test data file (alias for fixture_file).
 ///
 /// These files are simpler examples that successfully compile through all phases.
 fn codegen_test_file(name: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("tests")
-        .join("test_data")
-        .join("codegen")
-        .join("wasm")
-        .join("base")
-        .join(name)
+    fixture_file(name)
 }
 
 /// Returns a PATH that excludes wasmtime and coqc but preserves essential
@@ -1501,7 +1485,7 @@ fn run_full_workflow_with_wasmtime() {
 
 /// Returns the path to the syntax_`error.inf` test file.
 fn syntax_error_file() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("syntax_error.inf")
+    fixture_file("syntax_error.inf")
 }
 
 /// **Expected behavior**: Exit with non-zero code, meaningful error message, NO PANIC.
@@ -1545,4 +1529,403 @@ fn build_fails_gracefully_on_syntax_error() {
             .or(predicate::str::contains("Error"))
             .or(predicate::str::contains("Syntax")),
     );
+}
+
+// =============================================================================
+// Helper Functions for QA Test Files
+// =============================================================================
+
+/// Returns the path to `type_error.inf` test file.
+#[allow(dead_code)]
+fn type_error_file() -> std::path::PathBuf {
+    example_file("type_error.inf")
+}
+
+/// Returns the path to `empty.inf` test file.
+fn empty_file() -> std::path::PathBuf {
+    example_file("empty.inf")
+}
+
+/// Returns the path to `oracle.inf` test file.
+#[allow(dead_code)]
+fn oracle_file() -> std::path::PathBuf {
+    example_file("oracle.inf")
+}
+
+/// Returns the path to `forall_test.inf` test file.
+#[allow(dead_code)]
+fn forall_test_file() -> std::path::PathBuf {
+    example_file("forall_test.inf")
+}
+
+/// Returns the path to `exists_test.inf` test file.
+#[allow(dead_code)]
+fn exists_test_file() -> std::path::PathBuf {
+    example_file("exists_test.inf")
+}
+
+/// Returns the path to `assume_test.inf` test file.
+#[allow(dead_code)]
+fn assume_test_file() -> std::path::PathBuf {
+    example_file("assume_test.inf")
+}
+
+/// Returns the path to `unique_test.inf` test file.
+#[allow(dead_code)]
+fn unique_test_file() -> std::path::PathBuf {
+    example_file("unique_test.inf")
+}
+
+// =============================================================================
+// QA Test Coverage: Migrated from docs/qa-test-suite.md
+// =============================================================================
+
+/// QA: TC-2.10 - Verify empty file is handled gracefully.
+///
+/// **Expected behavior**: Exit with code 0 or specific empty-file error, no crash/panic.
+#[test]
+fn build_handles_empty_file() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .arg("build")
+        .arg(empty_file())
+        .arg("--parse");
+
+    // Empty file should either succeed or fail gracefully (no panic)
+    let output = cmd.output().expect("Failed to execute command");
+
+    // Check that stderr doesn't contain panic messages
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("panic") && !stderr.contains("RUST_BACKTRACE"),
+        "Empty file should not cause panic. Got: {stderr}"
+    );
+}
+
+/// QA: TC-5.9c - Verify `infs init` does not overwrite existing .gitignore.
+///
+/// **Expected behavior**: Exit with code 0, .gitignore contains original content.
+#[test]
+fn init_preserves_existing_gitignore() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create .git directory to trigger git file creation
+    std::fs::create_dir_all(temp.child(".git").path()).unwrap();
+
+    // Create custom .gitignore with specific content
+    let gitignore = temp.child(".gitignore");
+    std::fs::write(gitignore.path(), "custom-ignore-pattern\n").unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.current_dir(temp.path())
+        .arg("init")
+        .arg("test_project");
+
+    cmd.assert().success();
+
+    // Verify .gitignore still contains original content
+    let content =
+        std::fs::read_to_string(gitignore.path()).expect("Failed to read .gitignore");
+
+    assert!(
+        content.contains("custom-ignore-pattern"),
+        ".gitignore should preserve existing content. Got: {content}"
+    );
+}
+
+/// QA: TC-10.5 - Verify graceful handling of invalid `INFC_PATH`.
+///
+/// **Expected behavior**: Exit with non-zero code, clear error message.
+#[test]
+fn build_with_invalid_infc_path_shows_error() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", "/nonexistent/path/to/infc")
+        .arg("build")
+        .arg(example_file("example.inf"))
+        .arg("--parse");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("not found")
+            .or(predicate::str::contains("No such file"))
+            .or(predicate::str::contains("does not exist"))
+            .or(predicate::str::contains("compiler not found")),
+    );
+}
+
+/// QA: TC-12.3 - Verify recovery from corrupted toolchain metadata.
+///
+/// **Expected behavior**: No crash, warning about corrupted metadata.
+#[test]
+fn list_handles_corrupted_metadata() {
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create toolchain directory structure with corrupted metadata
+    let toolchain_dir = temp.child("toolchains").child("0.1.0");
+    std::fs::create_dir_all(toolchain_dir.path()).unwrap();
+
+    // Create a corrupted .metadata.json file
+    std::fs::write(
+        toolchain_dir.child(".metadata.json").path(),
+        "{ invalid json content",
+    )
+    .unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFERENCE_HOME", temp.path()).arg("list");
+
+    // Should not panic, may show warning or skip corrupted entry
+    let output = cmd.output().expect("Failed to execute command");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("panic") && !stderr.contains("RUST_BACKTRACE"),
+        "Corrupted metadata should not cause panic. Got: {stderr}"
+    );
+}
+
+/// QA: TC-13.1 - Verify compilation of oracle operator (@).
+///
+/// **Expected behavior**: Exit code 0, WASM binary generated.
+#[test]
+fn build_compiles_oracle_operator() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("nondet.inf");
+    let dest = temp.child("nondet.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
+        .arg("build")
+        .arg(dest.path())
+        .arg("--codegen")
+        .arg("-o");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("WASM generated"));
+
+    let wasm_output = temp.child("out").child("nondet.wasm");
+    assert!(
+        wasm_output.path().exists(),
+        "Expected WASM file at: {:?}",
+        wasm_output.path()
+    );
+}
+
+/// QA: TC-13.6 - Verify compilation of file with all non-det features.
+///
+/// **Expected behavior**: Exit code 0, both WASM and Rocq outputs generated.
+#[test]
+fn build_compiles_all_nondet_features() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("nondet.inf");
+    let dest = temp.child("nondet.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
+        .arg("build")
+        .arg(dest.path())
+        .arg("--codegen")
+        .arg("-o")
+        .arg("-v");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("WASM generated"))
+        .stdout(predicate::str::contains("V generated"));
+
+    let wasm_output = temp.child("out").child("nondet.wasm");
+    let v_output = temp.child("out").child("nondet.v");
+    assert!(
+        wasm_output.path().exists(),
+        "Expected WASM file at: {:?}",
+        wasm_output.path()
+    );
+    assert!(
+        v_output.path().exists(),
+        "Expected V file at: {:?}",
+        v_output.path()
+    );
+}
+
+/// QA: TC-2.11 - Verify phases execute in correct order regardless of flag order.
+///
+/// **Expected behavior**: Exit code 0, phases execute in order: parse -> analyze -> codegen.
+#[test]
+fn build_enforces_phase_order() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("trivial.inf");
+    let dest = temp.child("trivial.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    // Run with flags in reverse order: --codegen --parse -o
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
+        .arg("build")
+        .arg(dest.path())
+        .arg("--codegen")
+        .arg("--parse")
+        .arg("-o");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Parsed:"))
+        .stdout(predicate::str::contains("WASM generated"));
+
+    let wasm_output = temp.child("out").child("trivial.wasm");
+    assert!(
+        wasm_output.path().exists(),
+        "Expected WASM file at: {:?}",
+        wasm_output.path()
+    );
+}
+
+/// QA: TC-1.6 - Verify graceful error on unknown subcommand.
+///
+/// **Expected behavior**: Exit code non-zero, error message indicates unknown subcommand.
+#[test]
+fn unknown_subcommand_shows_error() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.arg("unknown-command");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("unrecognized")
+            .or(predicate::str::contains("not found"))
+            .or(predicate::str::contains("unknown")),
+    );
+}
+
+/// QA: TC-1.9 - Verify --version flag and version subcommand produce consistent output.
+///
+/// **Expected behavior**: Both commands exit with code 0, both show same version.
+#[test]
+fn version_flag_and_subcommand_are_consistent() {
+    let mut cmd_flag = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd_flag.arg("--version");
+
+    let mut cmd_subcmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd_subcmd.arg("version");
+
+    let flag_output = cmd_flag.output().expect("Failed to run --version");
+    let subcmd_output = cmd_subcmd.output().expect("Failed to run version");
+
+    assert!(flag_output.status.success(), "--version should succeed");
+    assert!(
+        subcmd_output.status.success(),
+        "version subcommand should succeed"
+    );
+
+    let flag_stdout = String::from_utf8_lossy(&flag_output.stdout);
+    let subcmd_stdout = String::from_utf8_lossy(&subcmd_output.stdout);
+
+    // Both should contain the version number
+    let version = env!("CARGO_PKG_VERSION");
+    assert!(
+        flag_stdout.contains(version),
+        "--version should contain {version}"
+    );
+    assert!(
+        subcmd_stdout.contains(version),
+        "version subcommand should contain {version}"
+    );
+}
+
+/// QA: TC-12.1 - Verify error when output directory not writable.
+///
+/// **Expected behavior**: Exit code non-zero, error indicates permission denied.
+#[test]
+#[cfg(unix)]
+fn build_fails_on_readonly_output_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let temp = assert_fs::TempDir::new().unwrap();
+    let src = codegen_test_file("trivial.inf");
+    let dest = temp.child("trivial.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    // Create read-only output directory
+    let out_dir = temp.child("out");
+    std::fs::create_dir_all(out_dir.path()).unwrap();
+    let mut perms = std::fs::metadata(out_dir.path())
+        .expect("Failed to get metadata")
+        .permissions();
+    perms.set_mode(0o555);
+    std::fs::set_permissions(out_dir.path(), perms).expect("Failed to set permissions");
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
+        .arg("build")
+        .arg(dest.path())
+        .arg("--codegen")
+        .arg("-o");
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("permission")
+            .or(predicate::str::contains("Permission"))
+            .or(predicate::str::contains("denied"))
+            .or(predicate::str::contains("Failed")),
+    );
+
+    // Restore permissions for cleanup
+    let mut perms = std::fs::metadata(out_dir.path())
+        .expect("Failed to get metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(out_dir.path(), perms).expect("Failed to restore permissions");
+}
+
+/// QA: TC-11.4 - Verify correct path handling with subdirectories.
+///
+/// **Expected behavior**: Path resolved correctly, build succeeds.
+#[test]
+fn build_handles_nested_paths() {
+    let Some(infc_path) = require_infc() else {
+        return;
+    };
+
+    let temp = assert_fs::TempDir::new().unwrap();
+
+    // Create nested directory structure
+    let nested_dir = temp.child("subdir").child("nested");
+    std::fs::create_dir_all(nested_dir.path()).unwrap();
+
+    let src = codegen_test_file("trivial.inf");
+    let dest = nested_dir.child("test.inf");
+    std::fs::copy(&src, dest.path()).unwrap();
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
+    cmd.env("INFC_PATH", &infc_path)
+        .current_dir(temp.path())
+        .arg("build")
+        .arg(dest.path())
+        .arg("--parse");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Parsed:"));
 }

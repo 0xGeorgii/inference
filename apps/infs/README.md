@@ -46,7 +46,7 @@ cargo build -p infs --release
 | `infs uninstall <version>` | Remove an installed toolchain |
 | `infs list` | List installed toolchains |
 | `infs default <version>` | Set the default toolchain |
-| `infs doctor` | Check installation health |
+| `infs doctor` | Check installation health with intelligent recommendations |
 | `infs self update` | Update infs itself |
 
 ### Other
@@ -122,6 +122,10 @@ infs install
 # Install specific version
 infs install 0.1.0
 
+# If a version is already installed but no default is set,
+# infs install automatically sets it as default
+infs install  # Sets existing toolchain as default if needed
+
 # List installed versions
 infs list
 
@@ -129,6 +133,7 @@ infs list
 infs default 0.1.0
 
 # Check installation health
+# Provides intelligent suggestions based on your current state
 infs doctor
 ```
 
@@ -312,19 +317,50 @@ cargo build -p infs
 cargo test -p infs
 ```
 
-282 tests cover:
+429 tests (360 unit + 69 integration) cover:
 - Command argument parsing
 - Build phases (parse, analyze, codegen)
 - Output generation (WASM, Rocq)
 - Project scaffolding
 - Toolchain management operations
 - TUI navigation and command execution
+- TUI rendering with TestBackend
+- Non-deterministic features (forall, exists, assume, unique, oracle)
 - Error handling and edge cases
+- Environment variable handling
 - Byte-identical output compared to legacy `infc`
+
+### Test Fixtures
+
+Test fixtures are located in `tests/fixtures/`:
+
+| File | Purpose |
+|------|---------|
+| `trivial.inf` | Simple valid program |
+| `example.inf` | Complex example with multiple functions |
+| `nondet.inf` | Non-deterministic features (forall, exists, assume, unique) |
+| `syntax_error.inf` | Syntax error handling |
+| `type_error.inf` | Type error handling |
+| `empty.inf` | Empty file edge case |
+| `oracle.inf` | Oracle operator (`@`) |
+| `forall_test.inf` | Forall block compilation |
+| `exists_test.inf` | Exists block compilation |
+| `assume_test.inf` | Assume block compilation |
+| `unique_test.inf` | Unique block compilation |
 
 ### Integration Tests
 
 Some integration tests are conditional:
 - `run_full_workflow_with_wasmtime` - requires wasmtime
+- Unix-specific tests (permissions) - `#[cfg(unix)]`
 
-These tests skip gracefully when external tools are unavailable.
+These tests skip gracefully when external tools or platforms are unavailable.
+
+### Manual QA Tests
+
+9 tests require manual verification and are documented in `docs/qa-test-suite.md`:
+- TUI visual verification
+- Verify command (requires coqc)
+- Self-update (requires actual distribution server)
+- Cross-platform builds (requires CI on each platform)
+- Disk full and permission scenarios

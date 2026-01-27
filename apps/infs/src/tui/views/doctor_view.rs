@@ -147,3 +147,92 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme) {
 
     frame.render_widget(help, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::DoctorCheck;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn create_test_terminal() -> Terminal<TestBackend> {
+        let backend = TestBackend::new(80, 24);
+        Terminal::new(backend).expect("Should create terminal")
+    }
+
+    #[test]
+    fn render_empty_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = DoctorState::default();
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_with_checks_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = DoctorState {
+            checks: vec![
+                DoctorCheck::ok("Platform", "linux x64"),
+                DoctorCheck::warning("Toolchain", "No default set"),
+                DoctorCheck::error("inf-llc", "Not found"),
+            ],
+            selected: 0,
+            loaded: true,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_all_ok_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = DoctorState {
+            checks: vec![
+                DoctorCheck::ok("Platform", "linux x64"),
+                DoctorCheck::ok("Toolchain directory", "~/.inference"),
+                DoctorCheck::ok("Default toolchain", "0.1.0"),
+            ],
+            selected: 1,
+            loaded: true,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+
+    #[test]
+    fn render_all_errors_does_not_panic() {
+        let mut terminal = create_test_terminal();
+        let theme = Theme::dark();
+        let state = DoctorState {
+            checks: vec![
+                DoctorCheck::error("inf-llc", "Not found"),
+                DoctorCheck::error("rust-lld", "Not found"),
+                DoctorCheck::error("infc", "Not found"),
+            ],
+            selected: 2,
+            loaded: true,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), &theme, &state);
+            })
+            .expect("Should render");
+    }
+}
