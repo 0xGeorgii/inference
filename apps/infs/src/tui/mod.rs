@@ -39,6 +39,7 @@ use std::io::IsTerminal;
 
 use anyhow::{Context, Result};
 
+use crate::toolchain::ToolchainPaths;
 use terminal::TerminalGuard;
 
 /// Determines whether the TUI should be used based on environment.
@@ -71,6 +72,11 @@ pub fn should_use_tui() -> bool {
 /// - Drawing fails
 /// - Command execution fails
 pub fn run() -> Result<()> {
+    // Initialize ~/.inference directory on first launch
+    if let Ok(paths) = ToolchainPaths::new() {
+        let _ = paths.ensure_directories();
+    }
+
     loop {
         let pending_command = {
             let mut guard = TerminalGuard::new().context("failed to initialize terminal")?;

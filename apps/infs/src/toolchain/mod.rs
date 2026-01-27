@@ -12,7 +12,7 @@
 //! - [`manifest`] - Release manifest fetching and parsing
 //! - [`download`] - HTTP download with progress tracking
 //! - [`verify`] - SHA256 checksum verification
-//! - [`archive`] - ZIP archive extraction utilities
+//! - [`archive`] - ZIP and tar.gz archive extraction utilities
 //! - [`doctor`] - Toolchain health checks
 //! - [`conflict`] - PATH conflict detection
 
@@ -27,7 +27,7 @@ pub mod resolver;
 pub mod shell;
 pub mod verify;
 
-pub use archive::extract_zip;
+pub use archive::{extract_archive, set_executable_permissions};
 pub use download::{ProgressCallback, ProgressEvent, download_file, download_file_with_callback};
 pub use manifest::{fetch_artifact, fetch_manifest, latest_stable, latest_version};
 pub use paths::ToolchainPaths;

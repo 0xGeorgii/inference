@@ -55,9 +55,7 @@ fn render_toolchain_list(frame: &mut Frame, area: Rect, theme: &Theme, state: &T
             ),
             Span::styled(
                 "Install latest toolchain",
-                Style::default()
-                    .fg(theme.text)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
             ),
         ]));
     } else {
@@ -80,10 +78,9 @@ fn render_toolchain_list(frame: &mut Frame, area: Rect, theme: &Theme, state: &T
                 Span::raw("")
             };
 
-            let installed_ago = toolchain
-                .metadata
-                .as_ref()
-                .map_or_else(String::new, |m| format!(" - installed {}", m.installed_ago()));
+            let installed_ago = toolchain.metadata.as_ref().map_or_else(String::new, |m| {
+                format!(" - installed {}", m.installed_ago())
+            });
 
             lines.push(Line::from(vec![
                 Span::styled(prefix, version_style),

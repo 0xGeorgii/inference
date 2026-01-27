@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::toolchain::{
-    Platform, ToolchainPaths, download_file, extract_zip, fetch_manifest, latest_stable,
+    Platform, ToolchainPaths, download_file, extract_archive, fetch_manifest, latest_stable,
     latest_version, verify_checksum,
 };
 
@@ -95,7 +95,9 @@ async fn execute_update() -> Result<()> {
         .with_context(|| format!("Invalid latest version: {latest_version}"))?;
 
     if current_semver >= latest_semver {
-        println!("infs is already up to date (current: {current_version}, available: {latest_version}).");
+        println!(
+            "infs is already up to date (current: {current_version}, available: {latest_version})."
+        );
         return Ok(());
     }
 
@@ -116,7 +118,7 @@ async fn execute_update() -> Result<()> {
 
     println!("Extracting...");
     let temp_dir = paths.downloads.join(format!("infs-{latest_version}-temp"));
-    extract_zip(&download_path, &temp_dir)?;
+    extract_archive(&download_path, &temp_dir)?;
 
     let new_binary_name = format!("infs{}", platform.executable_extension());
     let new_binary_path = temp_dir.join(&new_binary_name);
@@ -149,8 +151,7 @@ async fn execute_update() -> Result<()> {
 
 /// Replaces the current binary with a new one.
 fn replace_binary(new_binary: &std::path::Path, _platform: Platform) -> Result<()> {
-    let current_exe = std::env::current_exe()
-        .context("Failed to get current executable path")?;
+    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
 
     #[cfg(unix)]
     {
@@ -163,14 +164,15 @@ fn replace_binary(new_binary: &std::path::Path, _platform: Platform) -> Result<(
         std::fs::set_permissions(new_binary, perms)
             .with_context(|| format!("Failed to set permissions: {}", new_binary.display()))?;
 
-        std::fs::rename(new_binary, &current_exe)
-            .with_context(|| format!(
+        std::fs::rename(new_binary, &current_exe).with_context(|| {
+            format!(
                 "Failed to replace binary. You may need to run with elevated privileges.\n\
                  Source: {}\n\
                  Destination: {}",
                 new_binary.display(),
                 current_exe.display()
-            ))?;
+            )
+        })?;
     }
 
     #[cfg(windows)]
@@ -181,18 +183,18 @@ fn replace_binary(new_binary: &std::path::Path, _platform: Platform) -> Result<(
             std::fs::remove_file(&old_binary).ok();
         }
 
-        std::fs::rename(&current_exe, &old_binary)
-            .with_context(|| format!(
+        std::fs::rename(&current_exe, &old_binary).with_context(|| {
+            format!(
                 "Failed to rename current binary to {}",
                 old_binary.display()
-            ))?;
+            )
+        })?;
 
         if let Err(e) = std::fs::rename(new_binary, &current_exe) {
             std::fs::rename(&old_binary, &current_exe).ok();
-            return Err(e).with_context(|| format!(
-                "Failed to install new binary at {}",
-                current_exe.display()
-            ));
+            return Err(e).with_context(|| {
+                format!("Failed to install new binary at {}", current_exe.display())
+            });
         }
     }
 

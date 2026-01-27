@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix `infs install` and `infs self update` to fall back to latest pre-release version when no stable versions exist ([#96])
   - Previously failed with "No stable version found in manifest" error
   - Now uses latest stable version if available, otherwise falls back to latest version regardless of stability
+- Fix `infs install` failing with nested archive structure from GitHub releases ([#96])
+  - GitHub releases wrap tar.gz archives in ZIP files
+  - Now automatically detects and extracts nested tar.gz after ZIP extraction
 
 ### Build
 

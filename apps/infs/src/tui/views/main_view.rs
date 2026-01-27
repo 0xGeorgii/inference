@@ -38,7 +38,14 @@ pub fn render(
 
     render_header(frame, chunks[0], theme);
     render_menu(frame, chunks[1], theme, menu);
-    render_input(frame, chunks[2], theme, command_input, is_command_mode, cursor_pos);
+    render_input(
+        frame,
+        chunks[2],
+        theme,
+        command_input,
+        is_command_mode,
+        cursor_pos,
+    );
     render_status(frame, chunks[3], theme, status_message);
 }
 

@@ -12,9 +12,9 @@
 //! ~/.inference/               # Root directory (or INFERENCE_HOME)
 //!   toolchains/               # Installed toolchain versions
 //!     0.1.0/                  # Version-specific installation
+//!       infc                  # Compiler binary (at root level)
 //!       bin/
-//!         infc
-//!         inf-llc
+//!         inf-llc             # LLVM backend tools
 //!         rust-lld
 //!       .metadata.json        # Installation metadata (date, etc.)
 //!     0.2.0/
@@ -24,6 +24,10 @@
 //!   cache/                    # Cached data (manifest, etc.)
 //!   default                   # File containing default version string
 //! ```
+//!
+//! Note: Binaries are searched first in the `bin/` subdirectory, then at the
+//! toolchain root. This supports both legacy layouts (all in `bin/`) and the
+//! current layout (`infc` at root, tools in `bin/`).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -297,7 +301,9 @@ impl ToolchainPaths {
             #[cfg(not(windows))]
             {
                 dirs::home_dir()
-                    .context("Cannot determine home directory. Set INFERENCE_HOME environment variable.")?
+                    .context(
+                        "Cannot determine home directory. Set INFERENCE_HOME environment variable.",
+                    )?
                     .join(".inference")
             }
         };
@@ -349,8 +355,8 @@ impl ToolchainPaths {
     /// Returns an error if the metadata file cannot be written.
     pub fn write_infs_metadata(&self, metadata: &InfsMetadata) -> Result<()> {
         let path = self.infs_metadata_path();
-        let content = serde_json::to_string_pretty(metadata)
-            .context("Failed to serialize infs metadata")?;
+        let content =
+            serde_json::to_string_pretty(metadata).context("Failed to serialize infs metadata")?;
         std::fs::write(&path, content)
             .with_context(|| format!("Failed to write infs metadata to {}", path.display()))?;
         Ok(())
@@ -393,8 +399,12 @@ impl ToolchainPaths {
         if !default_file.exists() {
             return Ok(None);
         }
-        let content = std::fs::read_to_string(&default_file)
-            .with_context(|| format!("Failed to read default version from {}", default_file.display()))?;
+        let content = std::fs::read_to_string(&default_file).with_context(|| {
+            format!(
+                "Failed to read default version from {}",
+                default_file.display()
+            )
+        })?;
         let version = content.trim();
         if version.is_empty() {
             Ok(None)
@@ -411,8 +421,12 @@ impl ToolchainPaths {
     pub fn set_default_version(&self, version: &str) -> Result<()> {
         std::fs::create_dir_all(&self.root)
             .with_context(|| format!("Failed to create directory: {}", self.root.display()))?;
-        std::fs::write(self.default_file(), version)
-            .with_context(|| format!("Failed to write default version to {}", self.default_file().display()))?;
+        std::fs::write(self.default_file(), version).with_context(|| {
+            format!(
+                "Failed to write default version to {}",
+                self.default_file().display()
+            )
+        })?;
         Ok(())
     }
 
@@ -429,8 +443,12 @@ impl ToolchainPaths {
         }
 
         let mut versions = Vec::new();
-        let entries = std::fs::read_dir(&self.toolchains)
-            .with_context(|| format!("Failed to read toolchains directory: {}", self.toolchains.display()))?;
+        let entries = std::fs::read_dir(&self.toolchains).with_context(|| {
+            format!(
+                "Failed to read toolchains directory: {}",
+                self.toolchains.display()
+            )
+        })?;
 
         for entry in entries {
             let entry = entry.with_context(|| "Failed to read directory entry")?;
@@ -465,9 +483,24 @@ impl ToolchainPaths {
     }
 
     /// Returns the path to a specific binary within a toolchain version.
+    ///
+    /// The binary is searched in two locations:
+    /// 1. First, check the `bin/` subdirectory (e.g., `~/.inference/toolchains/0.0.1/bin/inf-llc`)
+    /// 2. If not found, check the toolchain root directory (e.g., `~/.inference/toolchains/0.0.1/infc`)
+    /// 3. If neither exists, return the `bin/` path for consistent error messages
     #[must_use = "returns the path without side effects"]
     pub fn binary_path(&self, version: &str, binary_name: &str) -> PathBuf {
-        self.toolchain_bin_dir(version).join(binary_name)
+        let bin_path = self.toolchain_bin_dir(version).join(binary_name);
+        if bin_path.exists() {
+            return bin_path;
+        }
+
+        let root_path = self.toolchain_dir(version).join(binary_name);
+        if root_path.exists() {
+            return root_path;
+        }
+
+        bin_path
     }
 
     /// Returns the path to a symlinked binary in the global bin directory.
@@ -482,18 +515,22 @@ impl ToolchainPaths {
     ///
     /// # Errors
     ///
-    /// Returns an error if the symlink cannot be created.
+    /// Returns an error if the source binary does not exist or if the symlink cannot be created.
     pub fn create_symlink(&self, version: &str, binary_name: &str) -> Result<()> {
         let source = self.binary_path(version, binary_name);
         let target = self.symlink_path(binary_name);
 
         if !source.exists() {
-            return Ok(());
+            anyhow::bail!(
+                "Source binary not found: {}. The toolchain archive may be incomplete or corrupted.",
+                source.display()
+            );
         }
 
         if target.exists() {
-            std::fs::remove_file(&target)
-                .with_context(|| format!("Failed to remove existing symlink: {}", target.display()))?;
+            std::fs::remove_file(&target).with_context(|| {
+                format!("Failed to remove existing symlink: {}", target.display())
+            })?;
         }
 
         create_link(&source, &target)
@@ -526,8 +563,8 @@ impl ToolchainPaths {
     /// Returns an error if the metadata file cannot be written.
     pub fn write_metadata(&self, version: &str, metadata: &ToolchainMetadata) -> Result<()> {
         let path = self.metadata_path(version);
-        let content = serde_json::to_string_pretty(metadata)
-            .context("Failed to serialize metadata")?;
+        let content =
+            serde_json::to_string_pretty(metadata).context("Failed to serialize metadata")?;
         std::fs::write(&path, content)
             .with_context(|| format!("Failed to write metadata to {}", path.display()))?;
         Ok(())
@@ -589,8 +626,13 @@ impl ToolchainPaths {
 fn create_link(source: &Path, target: &Path) -> Result<()> {
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(source, target)
-            .with_context(|| format!("Failed to create symlink from {} to {}", source.display(), target.display()))?;
+        std::os::unix::fs::symlink(source, target).with_context(|| {
+            format!(
+                "Failed to create symlink from {} to {}",
+                source.display(),
+                target.display()
+            )
+        })?;
     }
 
     #[cfg(windows)]
@@ -598,7 +640,13 @@ fn create_link(source: &Path, target: &Path) -> Result<()> {
         std::os::windows::fs::symlink_file(source, target)
             .or_else(|_| std::fs::hard_link(source, target))
             .or_else(|_| std::fs::copy(source, target).map(|_| ()))
-            .with_context(|| format!("Failed to create link from {} to {}", source.display(), target.display()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to create link from {} to {}",
+                    source.display(),
+                    target.display()
+                )
+            })?;
     }
 
     Ok(())
@@ -664,7 +712,9 @@ mod tests {
         let temp_dir = env::temp_dir().join("infs_test_list_empty");
         let paths = ToolchainPaths::with_root(temp_dir);
 
-        let versions = paths.list_installed_versions().expect("Should list versions");
+        let versions = paths
+            .list_installed_versions()
+            .expect("Should list versions");
         assert!(versions.is_empty());
     }
 
@@ -675,7 +725,10 @@ mod tests {
 
         assert_eq!(
             paths.metadata_path("0.1.0"),
-            temp_dir.join("toolchains").join("0.1.0").join(".metadata.json")
+            temp_dir
+                .join("toolchains")
+                .join("0.1.0")
+                .join(".metadata.json")
         );
     }
 

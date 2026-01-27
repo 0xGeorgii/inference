@@ -6,11 +6,11 @@
 //! for the infs TUI application.
 
 use ratatui::{
+    Frame,
     layout::Rect,
     style::Style,
     text::{Line, Text},
     widgets::Paragraph,
-    Frame,
 };
 
 use crate::tui::theme::Theme;

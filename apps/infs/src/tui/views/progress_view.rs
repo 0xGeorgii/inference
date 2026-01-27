@@ -6,11 +6,11 @@
 //! showing download progress and operation status.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, Paragraph},
-    Frame,
 };
 
 use crate::tui::state::ProgressState;
@@ -97,9 +97,7 @@ fn render_items(frame: &mut Frame, area: Rect, theme: &Theme, state: &ProgressSt
             let desc_style = if item.completed {
                 Style::default().fg(theme.muted)
             } else {
-                Style::default()
-                    .fg(theme.text)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
             };
 
             let progress_text = Span::styled(
@@ -175,8 +173,8 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme, state: &ProgressS
 mod tests {
     use super::*;
     use crate::tui::state::ProgressItem;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     fn create_test_terminal() -> Terminal<TestBackend> {
         let backend = TestBackend::new(80, 24);

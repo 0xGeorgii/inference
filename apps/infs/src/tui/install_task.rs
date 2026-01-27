@@ -8,7 +8,6 @@
 //! The installation runs on a separate thread with its own tokio runtime to avoid
 //! blocking the main TUI event loop.
 
-use std::path::Path;
 use std::sync::mpsc::Sender;
 
 use anyhow::{Context, Result};
@@ -17,7 +16,7 @@ use super::state::InstallProgress;
 use crate::toolchain::paths::ToolchainMetadata;
 use crate::toolchain::{
     Platform, ProgressCallback, ProgressEvent, ToolchainPaths, download_file_with_callback,
-    extract_zip, fetch_artifact, verify_checksum,
+    extract_archive, fetch_artifact, set_executable_permissions, verify_checksum,
 };
 
 /// Runs the toolchain installation asynchronously, sending progress updates to the TUI.
@@ -92,8 +91,8 @@ async fn run_installation_inner(
         phase: format!("Downloading toolchain v{resolved_version}"),
     });
 
-    let archive_filename = format!("toolchain-{resolved_version}-{platform}.zip");
-    let archive_path = paths.download_path(&archive_filename);
+    let archive_filename = artifact.filename();
+    let archive_path = paths.download_path(archive_filename);
 
     let tx_callback = tx.clone();
     let callback: ProgressCallback = std::sync::Arc::new(move |event| {
@@ -134,7 +133,8 @@ async fn run_installation_inner(
     });
 
     let toolchain_dir = paths.toolchain_dir(&resolved_version);
-    extract_zip(&archive_path, &toolchain_dir).context("Failed to extract toolchain archive")?;
+    extract_archive(&archive_path, &toolchain_dir)
+        .context("Failed to extract toolchain archive")?;
 
     set_executable_permissions(&toolchain_dir).context("Failed to set executable permissions")?;
 
@@ -179,42 +179,6 @@ async fn run_installation_inner(
         version: resolved_version,
     });
 
-    Ok(())
-}
-
-/// Sets executable permissions on binary files (Unix only).
-#[cfg(unix)]
-fn set_executable_permissions(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let bin_dir = dir.join("bin");
-    if !bin_dir.exists() {
-        return Ok(());
-    }
-
-    let entries = std::fs::read_dir(&bin_dir)
-        .with_context(|| format!("Failed to read bin directory: {}", bin_dir.display()))?;
-
-    for entry in entries {
-        let entry = entry.with_context(|| "Failed to read directory entry")?;
-        let path = entry.path();
-        if path.is_file() {
-            let mut perms = std::fs::metadata(&path)
-                .with_context(|| format!("Failed to get metadata: {}", path.display()))?
-                .permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&path, perms)
-                .with_context(|| format!("Failed to set permissions: {}", path.display()))?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Sets executable permissions (no-op on Windows).
-#[cfg(windows)]
-#[allow(clippy::unnecessary_wraps)]
-fn set_executable_permissions(_dir: &Path) -> Result<()> {
     Ok(())
 }
 

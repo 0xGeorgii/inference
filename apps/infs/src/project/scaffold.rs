@@ -164,16 +164,14 @@ fn write_git_files_if_missing(project_path: &Path) -> Result<()> {
     if !tests_gitkeep.exists() {
         std::fs::create_dir_all(project_path.join("tests"))
             .with_context(|| "Failed to create tests directory")?;
-        std::fs::write(&tests_gitkeep, "")
-            .with_context(|| "Failed to write tests/.gitkeep")?;
+        std::fs::write(&tests_gitkeep, "").with_context(|| "Failed to write tests/.gitkeep")?;
     }
 
     let proofs_gitkeep = project_path.join("proofs").join(".gitkeep");
     if !proofs_gitkeep.exists() {
         std::fs::create_dir_all(project_path.join("proofs"))
             .with_context(|| "Failed to create proofs directory")?;
-        std::fs::write(&proofs_gitkeep, "")
-            .with_context(|| "Failed to write proofs/.gitkeep")?;
+        std::fs::write(&proofs_gitkeep, "").with_context(|| "Failed to write proofs/.gitkeep")?;
     }
 
     let gitignore_path = project_path.join(".gitignore");
@@ -188,8 +186,12 @@ fn write_git_files_if_missing(project_path: &Path) -> Result<()> {
 /// Writes core project files to the project directory.
 fn write_project_files(project_path: &Path, project_name: &str) -> Result<()> {
     let manifest_path = project_path.join("Inference.toml");
-    std::fs::write(&manifest_path, manifest_content(project_name))
-        .with_context(|| format!("Failed to write Inference.toml: {}", manifest_path.display()))?;
+    std::fs::write(&manifest_path, manifest_content(project_name)).with_context(|| {
+        format!(
+            "Failed to write Inference.toml: {}",
+            manifest_path.display()
+        )
+    })?;
 
     let src_dir = project_path.join("src");
     std::fs::create_dir_all(&src_dir)
@@ -204,8 +206,12 @@ fn write_project_files(project_path: &Path, project_name: &str) -> Result<()> {
         .with_context(|| format!("Failed to create tests directory: {}", tests_dir.display()))?;
 
     let proofs_dir = project_path.join("proofs");
-    std::fs::create_dir_all(&proofs_dir)
-        .with_context(|| format!("Failed to create proofs directory: {}", proofs_dir.display()))?;
+    std::fs::create_dir_all(&proofs_dir).with_context(|| {
+        format!(
+            "Failed to create proofs directory: {}",
+            proofs_dir.display()
+        )
+    })?;
 
     Ok(())
 }

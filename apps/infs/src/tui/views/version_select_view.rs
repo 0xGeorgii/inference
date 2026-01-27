@@ -146,8 +146,8 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, state: &VersionSele
 mod tests {
     use super::*;
     use crate::tui::state::VersionSelectInfo;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     fn create_test_terminal() -> Terminal<TestBackend> {
         let backend = TestBackend::new(80, 24);

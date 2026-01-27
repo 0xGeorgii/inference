@@ -21,8 +21,8 @@
 
 use std::path::{Path, PathBuf};
 
-use super::paths::ToolchainPaths;
 use super::Platform;
+use super::paths::ToolchainPaths;
 
 /// Represents a conflict where a binary in PATH shadows the managed version.
 #[derive(Debug, Clone)]
@@ -110,7 +110,10 @@ pub fn format_conflict_warning(conflicts: &[PathConflict]) -> String {
             conflict.binary,
             conflict.found.display()
         ));
-        lines.push(format!("  Expected:        {}", conflict.expected.display()));
+        lines.push(format!(
+            "  Expected:        {}",
+            conflict.expected.display()
+        ));
     }
 
     lines.push(String::new());
@@ -313,10 +316,26 @@ mod tests {
 
         let lines = format_doctor_conflict_warning(&conflicts);
 
-        assert!(lines.iter().any(|l| l.contains("'infc' resolves to /usr/local/bin/infc")));
-        assert!(lines.iter().any(|l| l.contains("'inf-llc' resolves to /opt/bin/inf-llc")));
-        assert!(lines.iter().any(|l| l.contains("managed version is at /home/user/.inference/bin/infc")));
-        assert!(lines.iter().any(|l| l.contains("managed version is at /home/user/.inference/bin/inf-llc")));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("'infc' resolves to /usr/local/bin/infc"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("'inf-llc' resolves to /opt/bin/inf-llc"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("managed version is at /home/user/.inference/bin/infc"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("managed version is at /home/user/.inference/bin/inf-llc"))
+        );
         assert!(lines.iter().any(|l| l.contains("Fix:")));
     }
 
@@ -340,7 +359,7 @@ mod tests {
             found: PathBuf::from("/a/b/test"),
             expected: PathBuf::from("/c/d/test"),
         };
-        let debug_str = format!("{:?}", conflict);
+        let debug_str = format!("{conflict:?}");
         assert!(debug_str.contains("PathConflict"));
         assert!(debug_str.contains("test"));
     }

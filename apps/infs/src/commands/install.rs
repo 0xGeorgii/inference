@@ -15,12 +15,12 @@
 
 use anyhow::Result;
 use clap::Args;
-use std::path::Path;
 
 use crate::toolchain::conflict::{detect_path_conflicts, format_conflict_warning};
 use crate::toolchain::paths::ToolchainMetadata;
 use crate::toolchain::{
-    Platform, ToolchainPaths, download_file, extract_zip, fetch_artifact, verify_checksum,
+    Platform, ToolchainPaths, download_file, extract_archive, fetch_artifact,
+    set_executable_permissions, verify_checksum,
 };
 
 /// Arguments for the install command.
@@ -76,8 +76,8 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
 
     println!("Installing toolchain version {version} for {platform}...");
 
-    let archive_filename = format!("toolchain-{version}-{platform}.zip");
-    let archive_path = paths.download_path(&archive_filename);
+    let archive_filename = artifact.filename();
+    let archive_path = paths.download_path(archive_filename);
 
     println!("Downloading from {}...", artifact.url);
     download_file(&artifact.url, &archive_path).await?;
@@ -87,7 +87,7 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
 
     println!("Extracting...");
     let toolchain_dir = paths.toolchain_dir(&version);
-    extract_zip(&archive_path, &toolchain_dir)?;
+    extract_archive(&archive_path, &toolchain_dir)?;
 
     set_executable_permissions(&toolchain_dir)?;
 
@@ -123,43 +123,6 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
 
     std::fs::remove_file(&archive_path).ok();
 
-    Ok(())
-}
-
-/// Sets executable permissions on binary files (Unix only).
-#[cfg(unix)]
-fn set_executable_permissions(dir: &Path) -> Result<()> {
-    use anyhow::Context;
-    use std::os::unix::fs::PermissionsExt;
-
-    let bin_dir = dir.join("bin");
-    if !bin_dir.exists() {
-        return Ok(());
-    }
-
-    let entries = std::fs::read_dir(&bin_dir)
-        .with_context(|| format!("Failed to read bin directory: {}", bin_dir.display()))?;
-
-    for entry in entries {
-        let entry = entry.with_context(|| "Failed to read directory entry")?;
-        let path = entry.path();
-        if path.is_file() {
-            let mut perms = std::fs::metadata(&path)
-                .with_context(|| format!("Failed to get metadata: {}", path.display()))?
-                .permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&path, perms)
-                .with_context(|| format!("Failed to set permissions: {}", path.display()))?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Sets executable permissions (no-op on Windows).
-#[cfg(windows)]
-#[allow(clippy::unnecessary_wraps)]
-fn set_executable_permissions(_dir: &Path) -> Result<()> {
     Ok(())
 }
 

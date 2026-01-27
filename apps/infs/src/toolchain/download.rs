@@ -326,11 +326,7 @@ pub async fn download_file_with_callback(
 }
 
 /// Downloads a file with callback-based progress reporting.
-async fn download_with_callback(
-    url: &str,
-    dest: &Path,
-    callback: ProgressCallback,
-) -> Result<()> {
+async fn download_with_callback(url: &str, dest: &Path, callback: ProgressCallback) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .build()

@@ -55,8 +55,12 @@ pub async fn execute(args: &UninstallArgs) -> Result<()> {
     println!("Uninstalling toolchain version {version}...");
 
     let toolchain_dir = paths.toolchain_dir(version);
-    std::fs::remove_dir_all(&toolchain_dir)
-        .with_context(|| format!("Failed to remove toolchain directory: {}", toolchain_dir.display()))?;
+    std::fs::remove_dir_all(&toolchain_dir).with_context(|| {
+        format!(
+            "Failed to remove toolchain directory: {}",
+            toolchain_dir.display()
+        )
+    })?;
 
     if is_default {
         let remaining_versions = paths.list_installed_versions()?;

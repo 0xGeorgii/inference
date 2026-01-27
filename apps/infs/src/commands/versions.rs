@@ -29,8 +29,8 @@ use anyhow::Result;
 use clap::Args;
 use serde::Serialize;
 
-use crate::toolchain::manifest::{fetch_manifest, sorted_versions};
 use crate::toolchain::Platform;
+use crate::toolchain::manifest::{fetch_manifest, sorted_versions};
 
 /// Arguments for the versions command.
 #[derive(Args)]
@@ -95,7 +95,11 @@ fn output_json(
         .map(|v| VersionInfo {
             version: v.version.clone(),
             stable: v.stable,
-            platforms: v.available_platforms().into_iter().map(String::from).collect(),
+            platforms: v
+                .available_platforms()
+                .into_iter()
+                .map(String::from)
+                .collect(),
             available_for_current: v.has_platform(platform),
         })
         .collect();

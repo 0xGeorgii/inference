@@ -22,9 +22,9 @@
 
 use anyhow::Result;
 
-use crate::toolchain::conflict::{detect_path_conflicts, format_doctor_conflict_warning};
-use crate::toolchain::doctor::{run_all_checks, DoctorCheckStatus};
 use crate::toolchain::ToolchainPaths;
+use crate::toolchain::conflict::{detect_path_conflicts, format_doctor_conflict_warning};
+use crate::toolchain::doctor::{DoctorCheckStatus, run_all_checks};
 
 /// Executes the doctor command.
 ///

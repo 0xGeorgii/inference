@@ -404,8 +404,7 @@ impl App {
                 if !self.version_select_state.loaded && !self.version_select_state.loading {
                     self.load_version_data();
                 }
-                self.status_message =
-                    String::from("Press Enter to install, Esc to go back");
+                self.status_message = String::from("Press Enter to install, Esc to go back");
             }
         }
     }
@@ -753,11 +752,11 @@ impl App {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             let result = rt.block_on(async {
-                use crate::toolchain::manifest::{fetch_manifest, sorted_versions};
                 use crate::toolchain::Platform;
+                use crate::toolchain::manifest::{fetch_manifest, sorted_versions};
 
-                let platform = Platform::detect()
-                    .map_err(|e| format!("Platform detection failed: {e}"))?;
+                let platform =
+                    Platform::detect().map_err(|e| format!("Platform detection failed: {e}"))?;
                 let manifest = fetch_manifest()
                     .await
                     .map_err(|e| format!("Failed to fetch manifest: {e}"))?;

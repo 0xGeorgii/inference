@@ -11,7 +11,7 @@
 //! - macOS ARM64 (`macos-arm64`)
 //! - Windows `x86_64` (`windows-x64`)
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::fmt;
 
 /// Represents a supported platform for toolchain binaries.
@@ -116,7 +116,6 @@ impl Platform {
             Self::WindowsX64 => "windows",
         }
     }
-
 }
 
 impl fmt::Display for Platform {
