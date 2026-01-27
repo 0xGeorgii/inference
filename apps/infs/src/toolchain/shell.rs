@@ -149,11 +149,9 @@ pub enum ConfigureResult {
     },
     /// PATH configuration already exists in the profile.
     AlreadyConfigured { profile: PathBuf },
-    /// No suitable profile file was found (Unix only).
-    #[cfg(unix)]
+    /// No suitable profile file was found (Unix only, never returned on Windows).
     NoProfileFound,
-    /// Shell could not be detected (Unix only).
-    #[cfg(unix)]
+    /// Shell could not be detected (Unix only, never returned on Windows).
     ShellNotDetected,
 }
 
@@ -162,14 +160,7 @@ impl ConfigureResult {
     #[must_use]
     #[allow(dead_code)]
     pub fn is_configured(&self) -> bool {
-        #[cfg(unix)]
-        {
-            matches!(self, Self::Added { .. } | Self::AlreadyConfigured { .. })
-        }
-        #[cfg(windows)]
-        {
-            matches!(self, Self::Added { .. } | Self::AlreadyConfigured { .. })
-        }
+        matches!(self, Self::Added { .. } | Self::AlreadyConfigured { .. })
     }
 }
 
@@ -329,14 +320,12 @@ pub fn format_result_message(result: &ConfigureResult, bin_path: &Path) -> Strin
         ConfigureResult::AlreadyConfigured { profile } => {
             format!("PATH already configured in {}", profile.display())
         }
-        #[cfg(unix)]
         ConfigureResult::NoProfileFound => {
             format!(
                 "Could not find shell profile. To use the toolchain, add to your PATH:\n  {}",
                 format_manual_path_instruction(bin_path)
             )
         }
-        #[cfg(unix)]
         ConfigureResult::ShellNotDetected => {
             format!(
                 "Could not detect shell. To use the toolchain, add to your PATH:\n  {}",
@@ -347,10 +336,16 @@ pub fn format_result_message(result: &ConfigureResult, bin_path: &Path) -> Strin
 }
 
 /// Returns the manual PATH configuration instruction appropriate for the platform.
-#[cfg(unix)]
 #[must_use]
 fn format_manual_path_instruction(bin_path: &Path) -> String {
-    format!("export PATH=\"{}:$PATH\"", bin_path.display())
+    #[cfg(unix)]
+    {
+        format!("export PATH=\"{}:$PATH\"", bin_path.display())
+    }
+    #[cfg(windows)]
+    {
+        format!("setx PATH \"%PATH%;{}\"", bin_path.display())
+    }
 }
 
 #[cfg(test)]
