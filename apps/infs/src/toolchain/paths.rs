@@ -77,8 +77,7 @@ impl InfsMetadata {
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
 
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -171,8 +170,7 @@ impl ToolchainMetadata {
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
 
         Self {
             installed_at: format_timestamp(timestamp),
@@ -238,8 +236,7 @@ fn parse_and_format_relative_time(date_str: &str) -> String {
 
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
 
     let diff_secs = now_secs.saturating_sub(installed_secs);
     let diff_days = diff_secs / 86400;
