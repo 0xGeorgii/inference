@@ -78,12 +78,12 @@ fn fixture_file(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-/// Resolves the path to a test data file (alias for fixture_file).
+/// Resolves the path to a test data file (alias for `fixture_file`).
 fn example_file(name: &str) -> std::path::PathBuf {
     fixture_file(name)
 }
 
-/// Resolves the path to a codegen test data file (alias for fixture_file).
+/// Resolves the path to a codegen test data file (alias for `fixture_file`).
 ///
 /// These files are simpler examples that successfully compile through all phases.
 fn codegen_test_file(name: &str) -> std::path::PathBuf {
@@ -729,12 +729,9 @@ fn default_nonexistent_version_shows_error() {
         .arg("default")
         .arg("0.0.0-nonexistent");
 
-    cmd.assert()
-        .failure()
-        .stderr(
-            predicate::str::contains("not installed")
-                .or(predicate::str::contains("does not exist")),
-        );
+    cmd.assert().failure().stderr(
+        predicate::str::contains("not installed").or(predicate::str::contains("does not exist")),
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -1621,15 +1618,12 @@ fn init_preserves_existing_gitignore() {
     std::fs::write(gitignore.path(), "custom-ignore-pattern\n").unwrap();
 
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("infs"));
-    cmd.current_dir(temp.path())
-        .arg("init")
-        .arg("test_project");
+    cmd.current_dir(temp.path()).arg("init").arg("test_project");
 
     cmd.assert().success();
 
     // Verify .gitignore still contains original content
-    let content =
-        std::fs::read_to_string(gitignore.path()).expect("Failed to read .gitignore");
+    let content = std::fs::read_to_string(gitignore.path()).expect("Failed to read .gitignore");
 
     assert!(
         content.contains("custom-ignore-pattern"),

@@ -28,9 +28,11 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 /// Marker comment used to identify inference PATH configuration.
+#[cfg(unix)]
 const INFERENCE_MARKER: &str = "# Inference toolchain";
 
 /// Represents supported shell types.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
     Bash,
@@ -38,6 +40,7 @@ pub enum Shell {
     Fish,
 }
 
+#[cfg(unix)]
 impl Shell {
     /// Detects the user's shell from the SHELL environment variable.
     ///
@@ -86,20 +89,44 @@ impl Shell {
     }
 
     /// Generates the PATH configuration snippet for this shell.
+    ///
+    /// Properly escapes special characters in paths:
+    /// - For Bash/Zsh: escapes `$`, backticks, `"`, and `\` within double quotes
+    /// - For Fish: uses single quotes for paths containing special characters
+    ///   (spaces, `$`, `\`, `'`, `*`, `?`, `(`, `)`, `[`, `]`, `{`, `}`)
     #[must_use]
     pub fn path_config(self, bin_path: &Path) -> String {
         match self {
             Self::Bash | Self::Zsh => {
-                format!(
-                    "\n{INFERENCE_MARKER}\nexport PATH=\"{}:$PATH\"\n",
-                    bin_path.display()
-                )
+                let escaped_path = bin_path
+                    .display()
+                    .to_string()
+                    .replace('\\', "\\\\")
+                    .replace('$', "\\$")
+                    .replace('`', "\\`")
+                    .replace('"', "\\\"");
+                format!("\n{INFERENCE_MARKER}\nexport PATH=\"{escaped_path}:$PATH\"\n")
             }
             Self::Fish => {
-                format!(
-                    "\n{INFERENCE_MARKER}\nfish_add_path {}\n",
-                    bin_path.display()
-                )
+                let path_str = bin_path.display().to_string();
+                let needs_quotes = path_str.contains(' ')
+                    || path_str.contains('$')
+                    || path_str.contains('\\')
+                    || path_str.contains('\'')
+                    || path_str.contains('*')
+                    || path_str.contains('?')
+                    || path_str.contains('(')
+                    || path_str.contains(')')
+                    || path_str.contains('[')
+                    || path_str.contains(']')
+                    || path_str.contains('{')
+                    || path_str.contains('}');
+                let formatted_path = if needs_quotes {
+                    format!("'{}'", path_str.replace('\'', "\\'"))
+                } else {
+                    path_str
+                };
+                format!("\n{INFERENCE_MARKER}\nfish_add_path {formatted_path}\n")
             }
         }
     }
@@ -122,9 +149,11 @@ pub enum ConfigureResult {
     },
     /// PATH configuration already exists in the profile.
     AlreadyConfigured { profile: PathBuf },
-    /// No suitable profile file was found.
+    /// No suitable profile file was found (Unix only).
+    #[cfg(unix)]
     NoProfileFound,
-    /// Shell could not be detected.
+    /// Shell could not be detected (Unix only).
+    #[cfg(unix)]
     ShellNotDetected,
 }
 
@@ -133,7 +162,14 @@ impl ConfigureResult {
     #[must_use]
     #[allow(dead_code)]
     pub fn is_configured(&self) -> bool {
-        matches!(self, Self::Added { .. } | Self::AlreadyConfigured { .. })
+        #[cfg(unix)]
+        {
+            matches!(self, Self::Added { .. } | Self::AlreadyConfigured { .. })
+        }
+        #[cfg(windows)]
+        {
+            matches!(self, Self::Added { .. } | Self::AlreadyConfigured { .. })
+        }
     }
 }
 
@@ -231,7 +267,7 @@ pub fn configure_path(bin_path: &Path) -> Result<ConfigureResult> {
     let new_path = if current_path.is_empty() {
         bin_str.to_string()
     } else {
-        format!("{};{}", current_path, bin_str)
+        format!("{current_path};{bin_str}")
     };
 
     env.set_value("Path", &new_path)
@@ -244,11 +280,13 @@ pub fn configure_path(bin_path: &Path) -> Result<ConfigureResult> {
 }
 
 /// Finds the first existing profile file from a list of candidates.
+#[cfg(unix)]
 fn find_existing_profile(candidates: &[PathBuf]) -> Option<PathBuf> {
     candidates.iter().find(|p| p.exists()).cloned()
 }
 
 /// Checks if the inference PATH configuration already exists in a file.
+#[cfg(unix)]
 fn is_path_configured(profile_path: &Path) -> Result<bool> {
     let content = std::fs::read_to_string(profile_path)
         .with_context(|| format!("Failed to read profile: {}", profile_path.display()))?;
@@ -256,6 +294,7 @@ fn is_path_configured(profile_path: &Path) -> Result<bool> {
 }
 
 /// Appends content to a file.
+#[cfg(unix)]
 fn append_to_file(path: &Path, content: &str) -> Result<()> {
     use std::fs::OpenOptions;
     use std::io::Write;
@@ -290,12 +329,14 @@ pub fn format_result_message(result: &ConfigureResult, bin_path: &Path) -> Strin
         ConfigureResult::AlreadyConfigured { profile } => {
             format!("PATH already configured in {}", profile.display())
         }
+        #[cfg(unix)]
         ConfigureResult::NoProfileFound => {
             format!(
                 "Could not find shell profile. To use the toolchain, add to your PATH:\n  {}",
                 format_manual_path_instruction(bin_path)
             )
         }
+        #[cfg(unix)]
         ConfigureResult::ShellNotDetected => {
             format!(
                 "Could not detect shell. To use the toolchain, add to your PATH:\n  {}",
@@ -319,6 +360,7 @@ fn format_manual_path_instruction(bin_path: &Path) -> String {
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use std::env;
@@ -404,6 +446,45 @@ mod tests {
         let config = Shell::Fish.path_config(&bin_path);
         assert!(config.contains("# Inference toolchain"));
         assert!(config.contains("fish_add_path /home/user/.inference/bin"));
+    }
+
+    #[test]
+    fn path_config_bash_escapes_special_chars() {
+        let bin_path = PathBuf::from("/home/user/$HOME/`test`/\"quoted\"/bin");
+        let config = Shell::Bash.path_config(&bin_path);
+        assert!(config.contains("# Inference toolchain"));
+        assert!(
+            config.contains(r#"export PATH="/home/user/\$HOME/\`test\`/\"quoted\"/bin:$PATH""#)
+        );
+    }
+
+    #[test]
+    fn path_config_zsh_escapes_special_chars() {
+        let bin_path = PathBuf::from("/home/user/$VAR/bin");
+        let config = Shell::Zsh.path_config(&bin_path);
+        assert!(config.contains(r#"export PATH="/home/user/\$VAR/bin:$PATH""#));
+    }
+
+    #[test]
+    fn path_config_fish_quotes_path_with_spaces() {
+        let bin_path = PathBuf::from("/home/user/My Documents/.inference/bin");
+        let config = Shell::Fish.path_config(&bin_path);
+        assert!(config.contains("# Inference toolchain"));
+        assert!(config.contains("fish_add_path '/home/user/My Documents/.inference/bin'"));
+    }
+
+    #[test]
+    fn path_config_fish_quotes_path_with_dollar() {
+        let bin_path = PathBuf::from("/home/user/$HOME/bin");
+        let config = Shell::Fish.path_config(&bin_path);
+        assert!(config.contains("fish_add_path '/home/user/$HOME/bin'"));
+    }
+
+    #[test]
+    fn path_config_fish_escapes_single_quotes() {
+        let bin_path = PathBuf::from("/home/user/it's mine/bin");
+        let config = Shell::Fish.path_config(&bin_path);
+        assert!(config.contains(r"fish_add_path '/home/user/it\'s mine/bin'"));
     }
 
     #[test]
