@@ -150,8 +150,10 @@ pub enum ConfigureResult {
     /// PATH configuration already exists in the profile.
     AlreadyConfigured { profile: PathBuf },
     /// No suitable profile file was found (Unix only, never returned on Windows).
+    #[cfg(unix)]
     NoProfileFound,
     /// Shell could not be detected (Unix only, never returned on Windows).
+    #[cfg(unix)]
     ShellNotDetected,
 }
 
