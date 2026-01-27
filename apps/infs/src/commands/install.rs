@@ -69,8 +69,20 @@ pub async fn execute(args: &InstallArgs) -> Result<()> {
     println!("Fetching release manifest...");
     let (version, artifact) = fetch_artifact(version_arg, platform).await?;
 
+    // Handle the case when the requested version is already installed.
+    // If no default toolchain is set (e.g., user manually removed the default file
+    // or installed via another method), we set this version as default to ensure
+    // the toolchain is usable. This provides a graceful recovery path.
     if paths.is_version_installed(&version) {
-        println!("Toolchain version {version} is already installed.");
+        let current_default = paths.get_default_version()?;
+        if current_default.is_none() {
+            println!("Toolchain version {version} is already installed.");
+            println!("Setting {version} as default toolchain...");
+            paths.set_default_version(&version)?;
+            paths.update_symlinks(&version)?;
+        } else {
+            println!("Toolchain version {version} is already installed.");
+        }
         return Ok(());
     }
 

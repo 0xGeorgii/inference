@@ -17,6 +17,24 @@
 
 use super::{Platform, ToolchainPaths};
 
+/// Generates a message for when no default toolchain is set.
+///
+/// Checks installed versions and suggests the appropriate action:
+/// - If no versions installed: suggests running `infs install`
+/// - If versions exist: suggests running `infs default <latest>` to set one
+fn no_default_toolchain_message(paths: &ToolchainPaths) -> String {
+    let installed = paths.list_installed_versions().unwrap_or_default();
+    if installed.is_empty() {
+        "No default toolchain set. Run 'infs install' first.".to_string()
+    } else {
+        // Safety: `installed` is non-empty due to the guard above
+        let latest = installed
+            .last()
+            .expect("installed list is non-empty due to guard above");
+        format!("No default toolchain set. Run 'infs default {latest}' to set one.")
+    }
+}
+
 /// Status of a doctor check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DoctorCheckStatus {
@@ -187,10 +205,9 @@ pub fn check_default_toolchain() -> DoctorCheck {
                 )
             }
         }
-        Ok(None) => DoctorCheck::warning(
-            "Default toolchain",
-            "Not set. Run 'infs install' to install and set a default toolchain.",
-        ),
+        Ok(None) => {
+            DoctorCheck::warning("Default toolchain", no_default_toolchain_message(&paths))
+        }
         Err(e) => DoctorCheck::error("Default toolchain", format!("Cannot read: {e}")),
     }
 }
@@ -227,10 +244,7 @@ pub fn check_binary(name: &str, binary_name: &str) -> DoctorCheck {
     let default_version = match paths.get_default_version() {
         Ok(Some(v)) => v,
         Ok(None) => {
-            return DoctorCheck::warning(
-                name,
-                "No default toolchain set. Run 'infs install' first.",
-            );
+            return DoctorCheck::warning(name, no_default_toolchain_message(&paths));
         }
         Err(_) => {
             return DoctorCheck::error(name, "Cannot read default version");
@@ -262,10 +276,7 @@ pub fn check_libllvm() -> DoctorCheck {
     let default_version = match paths.get_default_version() {
         Ok(Some(v)) => v,
         Ok(None) => {
-            return DoctorCheck::warning(
-                "libLLVM",
-                "No default toolchain set. Run 'infs install' first.",
-            );
+            return DoctorCheck::warning("libLLVM", no_default_toolchain_message(&paths));
         }
         Err(_) => {
             return DoctorCheck::error("libLLVM", "Cannot read default version");
