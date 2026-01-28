@@ -341,15 +341,9 @@ pub fn format_result_message(result: &ConfigureResult, bin_path: &Path) -> Strin
 
 /// Returns the manual PATH configuration instruction appropriate for the platform.
 #[must_use]
+#[cfg(unix)]
 fn format_manual_path_instruction(bin_path: &Path) -> String {
-    #[cfg(unix)]
-    {
-        format!("export PATH=\"{}:$PATH\"", bin_path.display())
-    }
-    #[cfg(windows)]
-    {
-        format!("setx PATH \"%PATH%;{}\"", bin_path.display())
-    }
+    format!("export PATH=\"{}:$PATH\"", bin_path.display())
 }
 
 #[cfg(test)]
